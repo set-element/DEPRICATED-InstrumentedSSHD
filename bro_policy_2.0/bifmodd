@@ -1,0 +1,56 @@
+## This bif is required for the inout framework to correctly process
+##  string types.  If it is not possible to add this to the bro source,
+##  then the bif function can be changed from raw_unescape_URI() to
+##  unescape_URI() at the cost of noise...
+
+function raw_unescape_URI%(URI: string%): string
+        %{
+        const u_char* line = URI->Bytes();
+        const u_char* const line_end = line + URI->Len();
+
+        byte_vec decoded_URI = new u_char[line_end - line + 1];
+        byte_vec URI_p = decoded_URI;
+
+        while ( line < line_end )
+                {
+                if ( *line == '%' )
+                        {
+                        ++line;
+
+                        if ( line == line_end )
+                                {
+                                // How to deal with % at end of line?
+                                break;
+                                }
+                        else if ( *line == '%' )
+                                {
+                                // Double '%' might be either due to
+                                // software bug, or more likely, an
+                                // evasion (e.g. used by Nimda).
+                                --line; // ignore the first '%'
+                                }
+                        else if ( isxdigit(line[0]) && isxdigit(line[1]) )
+                                {
+                                *URI_p++ = (decode_hex(line[0]) << 4) +
+                                           decode_hex(line[1]);
+                                ++line; // place line at the last hex digit
+                                }
+                        else
+                                {
+                                *URI_p++ = '%'; // put back initial '%'
+                                *URI_p++ = *line;       // take char w/o interp.
+                                }
+                        }
+                else
+                        {
+                        *URI_p++ = *line;
+                        }
+
+                ++line;
+                }
+
+        URI_p[0] = 0;
+
+        return new StringVal( (int)(URI_p - decoded_URI), (const char*)decoded_URI);
+        %}
+

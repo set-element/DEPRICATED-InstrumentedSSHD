@@ -1,0 +1,261 @@
+This is a short change log for modifications to the baseline 
+code which is defined as the version before June 25, 2008.  
+Functional changes as well as new features will be put here.
+
+________________________________________________________________
+June 28, 2008  version NMOD_1.1
+________________________________________________________________
+-- start incrementing version via NMOD_X.Y in version.h
+
+   -----------------------------
+-- add heartbeat event:
+Heartbeat functionality was added, creating an event:
+
+	server_heartbeat time SID max_time_milliseconds
+
+The function is piggybacked to the (optional) client keep alive 
+loop.  If client keep alive is enabled, that timer will be used 
+(as defined in sshd_conf).  If not, a default value of 60 seconds 
+will be used.
+
+   -----------------------------
+-- Fixed the client stunnel write so that it will not trigger on 
+startup.
+
+   -----------------------------
+-- Moved setting socket to non blocking before the connect() call, 
+avoiding embaressing lockups when systunnel drops dead on the client 
+systems.
+
+   -----------------------------
+-- General cleanup of password logging and client/server data 
+flushing.  Details include:
+
+	* Client data logging stopped after a large number of 
+          blank lines from a edge case in the line counting mechanism.
+
+	* Password detection is completly moved out of the derver data 
+          loop.  This simplifies the program logic and allows for 
+          password detection any where in the data stream (rather 
+          than just in some buffer).
+
+	* Spaces are now also printed in client/server_data lines.
+
+________________________________________________________________
+June 30, 2008  version NMOD_1.2
+________________________________________________________________
+-- Fix references to the old tx_aux_buffer in channels.c/h
+
+________________________________________________________________
+July 14, 2008  version NMOD_1.3
+________________________________________________________________
+-- Added sshd_stunnel.init and sshd_stunnel.conf files and
+   modified Makefile.in to automatically install them.
+
+________________________________________________________________
+July 17, 2008  version NMOD_1.4
+________________________________________________________________
+-- Test for EINPROGRESS put in for connect() as non-blocking connects
+really should just do this.  We had been seeing some problems with this
+on some versions of linux.  Now there will be a 2 second delay and a 
+select call before giving up if connect() returns this value.
+
+________________________________________________________________
+December 23, 2008 version NMOD_2.0
+________________________________________________________________
+-- Removed the heartbeat from the client keep alive loop and placed it in
+the main sshd select loop.  There is some room for hyjinx here, but there
+are not many places to put the heartbeat in the actual server.
+
+   -----------------------------
+   
+-- For key based authentication, the fingerprint is now recorded.  This is via
+sshd_key_fingerprint event which provides both key fingerprint as well as type.
+
+   -----------------------------
+-- To avoid naming conflicts with the bsm auditing function, the main recording
+function will be renamed s_audit()
+
+   -----------------------------
+-- For remotely executed commands, auditing is now available.  The general set of events
+are:
+	notty_client_data : data fromclient
+	notty_server_data : data from server
+	notty_analysis_disable : data analysis has been disabled for one of the following reasons:
+	
+		There are > 500 non-printable characters in the initial sample period
+		of 1024 characters.
+		At any point the total number of non-printing characters exceeds 500.
+		When the total number of characters exceeds ~ .5 MB.
+		
+The values for the limits are defined at compile time and can not be otherwise changed.
+
+   -----------------------------
+-- String values have been reworked in order to deal with spaces in a cleaner way.  This has changed the way
+all data is passed back to the main auditing function.  Rather than calling:
+
+	s_audit(event, type=data,len, type=data,len)
+
+you will call:
+
+	s_audit(event, type=data, type=data ...)
+
+Rather than passing a length with the string, we just uriencode the data.
+
+
+   -----------------------------
+-- In sis_write() the initial send call argument has been changed from MSG_OOB to MSG_EOR since it was causing issues with logging sftp transactions when the stunnel had failed.  Still looking into the exact rational as to why this is working.
+
+
+   -----------------------------
+-- Switched the select and s_audit() lines in the heartbeat loop in sshd.c .  There were issues with the send aand select being logicaly backwards...
+
+
+March 27, 2009 version NMOD_2.2
+________________________________________________________________
+-- Reworked the auditing of non-tty communications to create more accurate logging.  Also fixed the 
+ratio test for print/non-print characters as a replacement for the (more) naive non-printing character
+count.  Now for data streams w/ size > NOTTY_DATA_SAMPLE the ratio of bytes_skipped/bytes_sent must
+be <= NOTTY_BIN_RATIO with the values of these two constants being set in channels.c  The current 
+values for them are 1024 bytes and 0.3 respectivly.
+
+-- Made client_session_id a random number rather than the child pid since not all systems seemed to
+be doing what we expected of them.
+
+-- Added an additional test for writing logs based on the return code for connect() rather than just the 
+socket value.  There is a pathological case for sftp logging where the session woud crash during logging
+if the stunnel had failed.
+
+-- checked in config.h.in which had not been done in the prev 5.x release.
+
+September 8, 2009 version NMOD_2.3
+________________________________________________________________
+-- Fixed missing client_session_id in sftp-server.c.  This should now sync up with the bro policy 
+which is a nice bonus.
+
+-- Checked in auth.c to capture the new auth_fail data
+
+-- Fixed notty_analysis_disable event
+
+October 18, 2009 version NMOD_2.4
+________________________________________________________________
+-- Fixed typo introduced in 2.3 via missing client_session_id in sftp-server.c.
+which is a nice bonus.
+
+-- Fixed signed vs. unsigned in channels.c print_len variable.
+
+November 10, 2009 version NMOD_2.5
+________________________________________________________________
+-- Steve Chan identifies bug introduced into channels.c outside of the NERSC_MOD boundries.  This
+had been causing sftp failures for large file transfers.  Thanks Steve!
+
+
+November 23, 2009 version NMOD_2.5
+________________________________________________________________
+-- Fix argument misalignment in channels.c for notty_analysis_disable reporting.  Analysis was not changed, 
+but sshd will now report stopping the notty channel data.
+
+December 15, 2009 version NMOD_2.6
+________________________________________________________________
+-- Add version string and IP interface data to the base information handed back from the sshd instance.
+
+	version string should look like: NMOD_2.6
+	interface string: 127.0.0.1 192.168.0.3 10.37.129.2 10.211.55.2
+
+   In a failure case, the interface_string variable will be set to "S" or "I" for socket and ioctl errors
+     respectfully.  There is no attempt at making this smarter, since we want all the smarts on the back end
+     and the cost in protocol overhead ought to be reasonably small.
+
+   Bro policy has been adjusted to digest the new version as well as the old since there will hav to be a period of overlap.
+
+-- Add new event server_input_channel_open in serverloop.c reports on direct-tcpip, session and tunnel channel requests
+
+January 05, 2010 version NMOD_2.7
+________________________________________________________________
+-- Address issues with logging from error messages using error() from within nersc.c going to STDERR rather than
+syslog when ssh and sftp are used on the same system as an instrumented sshd.  This is caused by the log_init() call
+in log.c resetting the output to stderr.  Since we do not modify the workings of client programs, make a 
+call : syslog_error() in nersc.c which forces a syslog call.
+
+-- fixed additional u_int -> int typo in channels.c :: channel_handle_wfd()
+
+-- fix error condition in nersc.c which will not cleanly compile if --with-nerscmod 
+is not set at configure time. 
+
+Jan 25, 2010 version NMOD_2.8
+________________________________________________________________
+--  Mike Dopheide (NCSA) identified a coding error in serverloop.c .  Fixed the problem!
+
+
+Jan 29, 2010 version NMOD_2.9
+________________________________________________________________
+-- Fixed a brain dead problem in nersc.c -> forgot to comment out debug to stderr
+
+Feb 26, 2010 version NMOD_2.10
+________________________________________________________________
+-- Fix typo in auth1.c and auth2-passwd.c which would only be touched if password recording 
+is activated
+
+Apr 10, 2010 version NMOD_2.11
+________________________________________________________________
+-- Update event names to be <event>_2 to provide for correct handling by the bro policy code
+-- Comment out do_log in nersc.c::syslog_error since we are seeing some unexpected output to stderr
+  rather than syslog.  tracking this down
+
+... Version 3.00 changelog pending ...
+
+June 29, 2011 version NMOD_3.00
+________________________________________________________________
+-- Fix typo in nersc.c which causes compile time error.  
+-- Fix encoding error so that the data is correctly encoded.
+
+thanks to asmo@moon-station.us for the pointers!
+
+-- Update line and byte accounting for tty client and server sections
+
+December 2, 2011 version NMOD_3.03
+________________________________________________________________
+-- Move the modp_burl code out into it's original form and just link against it.  Much cleaner.
+-- Additional changes to policy etc bump the version to 3.03
+
+December 2, 2011 version NMOD_3.04
+________________________________________________________________
+-- Modify the behavior of s_audit() in nersc.c such that the event name, sid and cid would not be run thrugh the va_start() to va_end() loop since the sid was being corrupted on my macbook.  Linux systems seemed not to have this problem.
+
+-- Modify the client loop to get better resolution on server feedback.  Now any client activity will reset the counters for server side line and byte values. 
+
+December 18, 2011 version NMOD_3.05
+________________________________________________________________
+-- Clean up the notty code in channels.c  - remove all malloc related code and use the channel infrastructure instead.  Fix some tx -> rx typos in the client buffer code.  Lower value for client data character count threshold to ensure that single character commands are recorded.
+-- Add return code checking to xmalloc() in nersc.c .
+
+December 19, 2011 version NMOD_3.06
+________________________________________________________________
+-- Declarations of type 'port' were ambigous (but implicit) for all events providing this info.  These are:
+
+	sshd_core.bro:event auth_info_3()
+	sshd_core.bro:event channel_port_open_3()
+	sshd_core.bro:event channel_portfwd_req_3()
+	sshd_core.bro:event channel_post_fwd_listener_3()
+	sshd_core.bro:event channel_set_fwd_listener_3()
+	sshd_core.bro:event channel_socks4_3()
+	sshd_core.bro:event channel_socks5_3()
+	sshd_core.bro:event session_request_direct_tcpip_3()
+	sshd_core.bro:event sshd_connection_end_3()
+	sshd_core.bro:event sshd_connection_start_3()
+	sshd_core.bro:event sshd_exit_3()
+	sshd_core.bro:event sshd_restart_3()
+	sshd_core.bro:event sshd_start_3()
+
+  This have been cleaned up.
+
+December 19, 2011 version NMOD_3.07
+________________________________________________________________
+-- If PASSWD_REC has been defined, the normal password extraction will happen.  Else a sha1 hash
+of the password will be provided to the analysis side via the auth_pass_attempt_3 event.  For this
+the openssl EVP functionality is used. 
+
+Feb 07, 2012 version NMOD_3.08
+________________________________________________________________
+-- Fix braindead typo in nersc.c which was dumping the unformatted data to the stunnel socket.
+

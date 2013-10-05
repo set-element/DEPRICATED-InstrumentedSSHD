@@ -1,0 +1,422 @@
+#!/usr/bin/perl
+#
+# sychan 3/26/09
+=head1 SSL Log Multiplexer
+
+  This script starts up an SSL listener on a configurable port, and takes
+ any input from clients connecting to that port, serializes it and and
+ outputs it to a file, or to stdout. Nonblocking I/O is used for efficiency.
+  In addition, this script has an option to perform on the fly translation
+ of bropipe input from the type=size,contents format to the type=contents
+ format, with conversion to URL strings when it detects that a string contains
+ non-alphanumeric characters.
+  Originally based on the non-forking server from the Perl Cookbook, modified
+ for SSL and bropipe translation.
+
+  Options for the script:
+  -p PORT the port to run the listener on, defaults to 1799
+  -o FILE the filename where output should be sent
+          if you don't specify one, then stdout will
+          be used
+  -P dir  directory for the pidfile, defaults to /var/run/
+  -d      turn on debugging output
+  -c FILE File containing the ssl cert for the server
+          defaults to certs/server-cert.pem
+  -k FILE File containing the key for the cert used for SSL
+          defaults to certs/server-key.pem. You will be prompted to
+          enter the passphrase if it is encrypted.
+  -t      turn on translation of old bropipe format to new urlstring
+          based format.
+  -h      Print out help
+  -e      Display parsing errors on bropipe translation.
+  -f      Stay in foreground - do not become a background process
+
+  If the process recieved a HUP signal, it will close the file it is
+ writing to, and open it again. The pidfile should be found in /var/run
+ if that is writeable, if not it should be in 
+
+=cut
+
+use POSIX;
+use IO::Socket;
+use IO::Socket::SSL;
+use IO::Select;
+use Socket;
+use Fcntl;
+use Tie::RefHash;
+use Getopt::Std;
+use strict 'vars';
+use Proc::PID::File;
+use Proc::ProcessTable;
+use Proc::Daemon;
+use Sys::Syslog;
+
+my $fn = $0;         # filename
+my $out = *STDOUT;   # output filehandle
+my %pid;             # hash for pidfile info
+my %ssl;             # hash for SSL parameters
+my $server;
+# begin with empty buffers
+my %inbuffer  = ();
+my %ready     = ();
+# some connections may be misbehaving and sending too
+# much info. keep a list of hosts for whom we should
+# ignore the rest of the line.
+my %ignore;
+# what is the maximum line length before we ignore the rest?
+my $maxlen = 8000;
+
+my %op;              # hash for commandline options
+my $types = "(?:bool|int|count|double|time|interval|string|port|addr|net|subnet)";
+# original memory size. Need to keep track of this in case the
+# script has a core leak and gets huge
+my $proc;
+my $memsize;
+my $lastsize;
+my @tmp;
+my $count;
+my $interval = 300; # seconds to wait between watchdog checks
+my $errors = 0;
+
+# Default values for port and output filename
+$op{'p'} = 1799;
+$op{'o'} = '-';
+
+# trap control-c and whatnot and close sockets before exit
+$SIG{INT} = \&clean_exit;
+$SIG{TERM} = \&clean_exit;
+# setup the watchdog timer to check our memory usage
+# Commented out because memory issue is resolved, and FreeBSD Proc::ProcessTable doesn't return
+# a field for memory usage
+#$SIG{ALRM} = \&watchdog;
+#alarm($interval);    
+
+if ( !getopts('p:o:dc:k:P:thef',\%op ) || $op{'h'}) {
+    usage( $fn );
+    exit;
+}
+
+# background ourselves unless -f is specified
+unless ($op{f} || $op{d}) {
+    Proc::Daemon::init();
+}
+
+# Open up the syslog. Use local5 for output
+openlog( $fn.'['.$$.']', "nofatal,perror,pid", LOG_LOCAL5);
+
+
+# Do the pidfile stuff
+if ( $op{P} ) {
+    $pid{dir} = $op{P};
+}
+
+if (Proc::PID::File->running( %pid )) {
+   syslog("err","Another instance is already running");
+   exit(1);
+}
+
+# trap HUP signals and re-open the $out filehandle if necessary.
+# Must do this after the Proc::Daemon::init(), since it sets the
+# process to ignore HUP
+$SIG{HUP} = \&reopen_out;
+
+
+# Setup the SSL params if there are any
+$ssl{SSL_cert_file} = $op{c} if $op{c};
+$ssl{SSL_key_file} = $op{k} if $op{k};
+
+unless ( $op{'p'} =~ /^\d+$/ &&
+         $op{'p'} < 65536 ) {
+   syslog("err", "Option -p must be set for a numeric value between 0 and 65536");
+   exit(1);
+}
+
+# Open up the output file handle. Defaults to stdout
+if ( $op{'o'} ) {
+   unless ( open $out, ">".$op{'o'}) {
+      syslog("err", "Could not open ".$op{'o'}." for writing");
+      exit(1);
+   }
+}
+
+# if debug is set, set $IO::Socket:SSL::DEBUG to 3 so that we get
+# the ssl debugging stuff too
+if ( $op{d} ) {
+   $IO::Socket::SSL::DEBUG = 3;
+}
+
+# Commented out due to FreeBSD issues with getting memory size
+#$lastsize = $memsize = do_I_look_fat();
+
+#print STDERR "Current RSS is ", $memsize, "\n" if $op{d};
+
+syslog(LOG_INFO,"starting listener");
+
+# Listen to port.
+# Do it as a cleartext listener initially, and convert to
+# an SSL connection after we've done the accept(). SSL
+# handshaking and non-blocking IO sometimes results in
+# calls returning before the SSL handshake completes, which
+# is a mess to process.
+$server = IO::Socket::INET->new(LocalPort => $op{'p'},
+			       Listen    => 200)
+          or die "Can't make server socket: $@\n";
+
+tie %ready, 'Tie::RefHash';
+
+nonblock($server);
+my $select = IO::Select->new($server);
+
+# Main loop: check reads/accepts, check writes, check ready to process
+while (1) {
+    my $client;
+    my $rv;
+    my $data;
+
+    # check for new information on the connections we have
+
+    # anything to read or accept?
+    foreach $client ($select->can_read(1)) {
+
+        if ($client == $server) {
+            # accept a new connection
+            $client = $server->accept();
+	    if (! $client ) {
+		syslog( "err","Error: ".$server->errstr);
+		next;
+	    }
+            if ($op{d} ) {
+                syslog("debug", "New client at ".$client->peerhost().":".
+                            $client->peerport());
+            }
+	    # Okay, we've done the accept(), now do the SSL negotiation
+	    # and then convert this new connection to non-blocking
+	    $client = IO::Socket::SSL->start_SSL( $client,
+						  SSL_startHandlehake => 0,
+						  SSL_server => 1,
+                                                  %ssl);
+	    if (! $client ) {
+		syslog("err", "Error: ".$!);
+		next;
+	    }
+	    
+            $select->add($client);
+            nonblock($client);
+        } else {
+            # read data
+            $data = '';
+            # $rv   = $client->recv($data, POSIX::BUFSIZ, 0);
+	    # recv() not implemented in IO::Socket::SSL, gotta use
+	    # read/sysread
+            $rv = sysread( $client,$data, POSIX::BUFSIZ, 0);
+
+            # an undef value means some socket error, but with non-blocking
+            # servers, you could get an EAGAIN, which we ignore
+            if (! defined($rv) ) {
+                next if ($! == EAGAIN);
+            }
+
+
+            # a zero value return code is supposed to mean EOF, also if
+            # we get some error, and it wasn't EAGAIN, close it as well
+            if (($rv == 0) || (! defined( $rv))) {
+                # This would be the end of file, so close the client
+                delete $inbuffer{$client};
+                delete $ready{$client};
+                delete $ignore{$client} if ($ignore{$client});
+                $select->remove($client);
+                if ($op{d}) {
+                    syslog("debug", sprintf("Closing socket from %s:%d",$client->peerhost(),
+                           $client->peerport()));
+                }
+                close $client;
+                next;
+            }
+
+            if ($ignore{$client}) {
+                # punt unless we see a newline
+                $ignore{$client} += length( $data );
+                next unless ($data =~ /.*?\n(.*)/);
+                # take everything after the newline as the next line to
+                # process
+                $inbuffer{$client} = $1;
+                if ($op{d}) {
+                    syslog("debug",sprintf "Ignored ~%d chars from ip %s:%d",
+                           $ignore{$client}, $client->peerhost(),$client->peerport());
+                }
+                delete $ignore{ $client };
+            } else {
+                $inbuffer{$client} .= $data;
+            }
+
+            # If this line is too long, set the ignore flag and tack
+            # a newline on the end to force it to be processed as is
+            if (length($inbuffer{$client}) > $maxlen) {
+                $ignore{$client} = 1;
+                $inbuffer{$client} .= "\n";
+                ++$errors;
+            }
+
+            # test whether the data in the buffer or the data we
+            # just read means there is a complete request waiting
+            # to be fulfilled.  If there is, set $ready{$client}
+            # to the requests waiting to be fulfilled.
+            while ($inbuffer{$client} =~ s/(.*\n)//) {
+                push( @{$ready{$client}}, $1 );
+            }
+            
+        }
+    }
+
+    # Any complete requests to process?
+    foreach $client (keys %ready) {
+        handle($client);
+    }
+
+}
+
+# handle($socket) deals with all pending requests for $client
+sub handle {
+    # requests are in $ready{$client}
+    my $client = shift;
+    my($request,$new,$type,$remain,$eventname,$length,$val);
+    
+    foreach $request (@{$ready{$client}}) {
+	$count++;
+        # $request is the text of the request
+	# skip empty requests
+	next if ($request =~ /^\s*$/);
+
+	# If -t is specified reprocess the string as an old style
+	# bropipe format into the current (urlstring enabled)
+	# format. Only do this if the line has a 'type=#,' pattern
+	# as the second item to try and cut down on rewrites.
+	if ($op{t} && ($request =~ /^\w+ $types\=\d+,/o)) {
+	    chomp $request;
+	    ($eventname,$remain) = $request =~ /^(\S+) (.*)/o;
+	    $new = $eventname;
+	    while ($remain) {
+		($type,$length,$remain) = $remain =~ /^(\w+)=(\d+)(.*)/o;
+		if ($type) {
+		    if (($type ne "string") ||
+			(($type eq "string") && ($length == 0))) {
+			($val,$remain) = $remain =~ /^,(\S+)\s?(.*)/o;
+			if ($val eq "" &&
+			    (($type eq 'int') ||
+			     ($type eq 'count') ||
+			     ($type eq 'double'))) {
+			    $val = 0;
+			}
+			$new .= " $type=$val";
+		    } else {
+			$val = substr( $remain,1,$length);
+			$remain = substr( $remain,$length + 2);
+			# check to make sure that the length was correct, and we are
+			# seeing a type=#, prefix on the remaining string, otherwise
+			# grind through the string until we come across that pattern
+			# and cut it off $remain and put it into $val
+			if (defined($remain) && ($remain ne "") && (($remain =~ /^$types\=\d+/o) == 0)) {
+			    # try to match for the rest of the string followed by another
+			    # type declaration, if we can't match that, then assume the
+			    # entirety of $remain is the rest of the string
+			    my($more,$r2) = $remain =~ /(.+?)\s(($types))/o;
+			    if ($more) {
+				$val .= $more;
+				$remain = $r2;
+			    } else {
+				$val .= $remain;
+				$remain = "";
+			    }
+			}
+			if ($val =~ /[^a-zA-Z0-9_.~-]/) {
+			    $val =~ s/([^a-zA-Z0-9_.~-])/uc sprintf("%%%02x",ord($1))/eg;
+			    $new .= " urlstring=$val";
+			} else {
+			    $new .= " string=$val";
+			}
+		    }
+		} else {
+		    syslog("err","Error in string parsing for line: $request") if ($op{e});
+		    $errors++;
+		    last;
+		}
+	    }
+	    $request = $new."\n";
+	}
+	print $out $request;
+	delete $ready{$client};
+    }
+}
+
+# nonblock($socket) puts socket into nonblocking mode
+sub nonblock {
+    my $socket = shift;
+    my $flags;
+    
+    $flags = fcntl($socket, F_GETFL, 0)
+            or die "Can't get flags for socket: $!\n";
+    fcntl($socket, F_SETFL, $flags | O_NONBLOCK)
+            or die "Can't make socket nonblocking: $!\n";
+}
+
+# Close down connections and open files.
+#
+sub close_all {
+    my($client,$flags);
+    close( $out);
+    foreach $client (keys %inbuffer ) {
+	close( $client);
+    }
+    $flags = fcntl($server, F_GETFL, 0);
+    fcntl($server, F_SETFL, $flags ^ O_NONBLOCK);
+    close( $server );
+}
+
+sub clean_exit {
+    my $sig = shift @_;
+
+    syslog("info", "Exitting on signal SIG$sig.");
+    close_all();
+    exit;
+}
+
+sub usage {
+    use Pod::Text;
+    pod2text( $0, *STDERR);
+}
+
+sub reopen_out {
+    syslog("warning", "Re-opening output file ".$op{o});
+    close( $out);
+    unless ( open $out, ">".$op{'o'}) {
+	syslog("err","Could not open ".$op{'o'}." for writing");
+	exit(1);
+    }
+}
+
+# 
+# size of the current process
+sub do_I_look_fat {
+    my $proc = new Proc::ProcessTable;
+    my $proctbl = $proc->table;
+
+    my @tmp = grep { $_->{pid} == $$ } @{$proctbl};
+    return($tmp[0]->{rss});
+
+}
+
+# Handler that compares the current memory size against
+# the last stored memory size. If it is greater than
+# 5x the original size, we should do something about it
+sub watchdog {
+    my( $size) = do_I_look_fat();
+    if ($op{d}) {
+	printf STDERR "Original RSS: %8d\tCurrent RSS: %8d\tLines: %9d\tParsing Errors: %8d\n",$memsize,$size,$count,$errors;
+    }
+    if ($size > (2 * $lastsize)) {
+	printf STDERR "Current memory footprint has doubled since last alert ( %d vs %d - original size %d ) at %d lines\n",
+	$size,$lastsize, $memsize,$count;
+	$lastsize = $size;
+    }
+    alarm($interval);
+}

@@ -1,0 +1,3161 @@
+diff --new-file -c openssh-6.2p2_/Makefile.in openssh-6.2p2/Makefile.in
+*** openssh-6.2p2_/Makefile.in	2013-03-07 09:37:13.000000000 -0600
+--- openssh-6.2p2/Makefile.in	2013-07-23 14:12:37.000000000 -0500
+***************
+*** 73,83 ****
+  	monitor_fdpass.o rijndael.o ssh-dss.o ssh-ecdsa.o ssh-rsa.o dh.o \
+  	kexdh.o kexgex.o kexdhc.o kexgexc.o bufec.o kexecdh.o kexecdhc.o \
+  	msg.o progressmeter.o dns.o entropy.o gss-genr.o umac.o umac128.o \
+! 	jpake.o schnorr.o ssh-pkcs11.o krl.o
+  
+  SSHOBJS= ssh.o readconf.o clientloop.o sshtty.o \
+  	sshconnect.o sshconnect1.o sshconnect2.o mux.o \
+! 	roaming_common.o roaming_client.o
+  
+  SSHDOBJS=sshd.o auth-rhosts.o auth-passwd.o auth-rsa.o auth-rh-rsa.o \
+  	audit.o audit-bsm.o audit-linux.o platform.o \
+--- 73,83 ----
+  	monitor_fdpass.o rijndael.o ssh-dss.o ssh-ecdsa.o ssh-rsa.o dh.o \
+  	kexdh.o kexgex.o kexdhc.o kexgexc.o bufec.o kexecdh.o kexecdhc.o \
+  	msg.o progressmeter.o dns.o entropy.o gss-genr.o umac.o umac128.o \
+! 	jpake.o schnorr.o ssh-pkcs11.o krl.o modp_burl.o nersc.o
+  
+  SSHOBJS= ssh.o readconf.o clientloop.o sshtty.o \
+  	sshconnect.o sshconnect1.o sshconnect2.o mux.o \
+! 	roaming_common.o roaming_client.o 
+  
+  SSHDOBJS=sshd.o auth-rhosts.o auth-passwd.o auth-rsa.o auth-rh-rsa.o \
+  	audit.o audit-bsm.o audit-linux.o platform.o \
+diff --new-file -c openssh-6.2p2_/auth.c openssh-6.2p2/auth.c
+*** openssh-6.2p2_/auth.c	2013-03-11 19:31:05.000000000 -0500
+--- openssh-6.2p2/auth.c	2013-07-23 13:20:39.000000000 -0500
+***************
+*** 79,84 ****
+--- 79,92 ----
+  extern Buffer loginmsg;
+  extern struct passwd *privsep_pw;
+  
++ #ifdef NERSC_MOD
++ #include "nersc.h"
++ #include <unistd.h>
++ extern int client_session_id;
++ extern char n_ntop[NI_MAXHOST];
++ extern char n_port[NI_MAXHOST];
++ #endif
++ 
+  /* Debugging messages */
+  Buffer auth_debug;
+  int auth_debug_init;
+***************
+*** 285,290 ****
+--- 293,311 ----
+  	    get_remote_port(),
+  	    info);
+  
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(authctxt->user, strlen(authctxt->user) );
++ 	char* t2buf = encode_string(method, strlen(method) );
++ 	char* t3buf = encode_string(authmsg, strlen(authmsg) );
++ 
++ 	s_audit("auth_info_3", "count=%i uristring=%s uristring=%s uristring=%s addr=%.200s  port=%d/tcp addr=%s port=%s/tcp",
++ 		client_session_id, t3buf, t1buf, t2buf, get_remote_ipaddr(), get_remote_port(), n_ntop, 
++ 		n_port);
++ 	free(t1buf);
++ 	free(t2buf);
++ 	free(t3buf);
++ #endif
++ 
+  #ifdef CUSTOM_FAILED_LOGIN
+  	if (authenticated == 0 && !authctxt->postponed &&
+  	    (strcmp(method, "password") == 0 ||
+***************
+*** 606,611 ****
+--- 627,639 ----
+  		record_failed_login(user,
+  		    get_canonical_hostname(options.use_dns), "ssh");
+  #endif
++ 
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(user, strlen(user));
++ 	s_audit("auth_invalid_user_3", "count=%i uristring=%s", client_session_id, t1buf);
++ 	free(t1buf);
++ #endif
++ 
+  #ifdef SSH_AUDIT_EVENTS
+  		audit_event(SSH_INVALID_USER);
+  #endif /* SSH_AUDIT_EVENTS */
+diff --new-file -c openssh-6.2p2_/auth1.c openssh-6.2p2/auth1.c
+*** openssh-6.2p2_/auth1.c	2012-12-02 16:53:20.000000000 -0600
+--- openssh-6.2p2/auth1.c	2013-07-23 13:20:39.000000000 -0500
+***************
+*** 41,46 ****
+--- 41,51 ----
+  #include "monitor_wrap.h"
+  #include "buffer.h"
+  
++ #ifdef NERSC_MOD
++ #include "nersc.h"
++ extern int client_session_id;
++ #endif
++ 
+  /* import */
+  extern ServerOptions options;
+  extern Buffer loginmsg;
+***************
+*** 129,134 ****
+--- 134,152 ----
+  	/* Try authentication with the password. */
+  	authenticated = PRIVSEP(auth_password(authctxt, password));
+  
++ #ifdef NERSC_MOD
++ #ifdef PASSWD_REC
++ 	char* t1buf = encode_string(authctxt->user, strlen(authctxt->user));
++ 	char* t2buf = encode_string(password, strlen(password));
++ 	
++ 	s_audit("auth_pass_attempt_3", "count=%i uristring=%s uristring=%s", 
++ 		client_session_id, t1buf, t2buf);
++ 		
++ 	free(t1buf);
++ 	free(t2buf);
++ #endif
++ #endif
++ 
+  	memset(password, 0, dlen);
+  	xfree(password);
+  
+diff --new-file -c openssh-6.2p2_/auth2-passwd.c openssh-6.2p2/auth2-passwd.c
+*** openssh-6.2p2_/auth2-passwd.c	2009-03-07 18:40:28.000000000 -0600
+--- openssh-6.2p2/auth2-passwd.c	2013-07-23 13:20:39.000000000 -0500
+***************
+*** 43,48 ****
+--- 43,57 ----
+  #include "monitor_wrap.h"
+  #include "servconf.h"
+  
++ #ifdef NERSC_MOD
++ 
++ #include <openssl/bn.h>
++ #include <openssl/evp.h>
++ 
++ #include "nersc.h"
++ extern int client_session_id;
++ #endif
++ 
+  /* import */
+  extern ServerOptions options;
+  
+***************
+*** 68,73 ****
+--- 77,108 ----
+  		logit("password change not supported");
+  	else if (PRIVSEP(auth_password(authctxt, password)) == 1)
+  		authenticated = 1;
++ 
++ #ifdef NERSC_MOD
++ 	const EVP_MD *evp_md = EVP_sha1();
++ 	EVP_MD_CTX  ctx;
++ 	u_char digest[EVP_MAX_MD_SIZE];
++ 	u_int dlen;
++ 
++ 	char* t1buf = encode_string(authctxt->user, strlen(authctxt->user));
++ 
++ 	EVP_DigestInit(&ctx, evp_md);
++ 	EVP_DigestUpdate(&ctx, password, strlen(password));
++ 	EVP_DigestFinal(&ctx, digest, &dlen);
++ 
++ #ifdef PASSWD_REC
++ 	char* t2buf = encode_string(password, strlen(password));
++ #else
++ 	char* t2buf = encode_string(digest, dlen);
++ #endif
++ 	
++ 	s_audit("auth_pass_attempt_3", "count=%i uristring=%s uristring=%s", 
++ 		client_session_id, t1buf, t2buf);
++ 		
++ 	free(t1buf);
++ 	free(t2buf);
++ 	
++ #endif
+  	memset(password, 0, len);
+  	xfree(password);
+  	return authenticated;
+diff --new-file -c openssh-6.2p2_/auth2-pubkey.c openssh-6.2p2/auth2-pubkey.c
+*** openssh-6.2p2_/auth2-pubkey.c	2013-02-14 17:28:56.000000000 -0600
+--- openssh-6.2p2/auth2-pubkey.c	2013-07-23 13:20:39.000000000 -0500
+***************
+*** 65,70 ****
+--- 65,75 ----
+  #include "authfile.h"
+  #include "match.h"
+  
++ #ifdef NERSC_MOD
++ #include "nersc.h"
++ extern int client_session_id;
++ #endif
++ 
+  /* import */
+  extern ServerOptions options;
+  extern u_char *session_id2;
+***************
+*** 363,368 ****
+--- 368,385 ----
+  			fp = key_fingerprint(found, SSH_FP_MD5, SSH_FP_HEX);
+  			verbose("Found matching %s key: %s",
+  			    key_type(found), fp);
++ 
++ #ifdef NERSC_MOD
++ 			char* t1key = encode_string(fp, strlen(fp));
++ 			char* t2key = encode_string(key_type(found), strlen(key_type(found)) );
++ 			
++ 			s_audit("auth_key_fingerprint_3", "count=%i uristring=%s uristring=%s", 
++ 				client_session_id, t1key, t2key);
++ 				
++ 			free(t1key);
++ 			free(t2key);
++ #endif
++ 
+  			xfree(fp);
+  			break;
+  		}
+diff --new-file -c openssh-6.2p2_/auth2.c openssh-6.2p2/auth2.c
+*** openssh-6.2p2_/auth2.c	2012-12-02 16:53:20.000000000 -0600
+--- openssh-6.2p2/auth2.c	2013-07-23 13:20:39.000000000 -0500
+***************
+*** 55,60 ****
+--- 55,65 ----
+  #endif
+  #include "monitor_wrap.h"
+  
++ #ifdef NERSC_MOD
++ #include "nersc.h"
++ extern int client_session_id;
++ #endif
++ 
+  /* import */
+  extern ServerOptions options;
+  extern u_char *session_id2;
+diff --new-file -c openssh-6.2p2_/channels.c openssh-6.2p2/channels.c
+*** openssh-6.2p2_/channels.c	2012-12-02 16:50:55.000000000 -0600
+--- openssh-6.2p2/channels.c	2013-07-23 13:20:39.000000000 -0500
+***************
+*** 78,83 ****
+--- 78,101 ----
+  #include "authfd.h"
+  #include "pathnames.h"
+  
++ #ifdef NERSC_MOD
++ #include <regex.h>
++ #include <ctype.h>
++ #include "nersc.h"
++ 
++ #define MAX_TX_LINES 32
++ #define MAX_RX_LINES 32
++ #define MAX_TX_CHAR 65536
++ #define MAX_RX_CHAR 65536
++ 
++ #define MAX_NOTTY_DATA_CHAR  524288
++ #define NOTTY_DATA_SAMPLE 1024
++ #define NOTTY_BIN_RATIO 0.3	/* this is the percent of binary characters allowed in stream */
++ 
++ regex_t re;
++ extern int client_session_id;
++ #endif /* NERSC_MOD */
++ 
+  /* -- channel core */
+  
+  /*
+***************
+*** 338,345 ****
+--- 356,395 ----
+  	c->mux_ctx = NULL;
+  	c->mux_pause = 0;
+  	c->delayed = 1;		/* prevent call to channel_post handler */
++ 
++ #ifdef NERSC_MOD
++ 	buffer_init(&c->rx_line_buf);
++ 	buffer_init(&c->tx_line_buf);
++ 	c->audit_enable = 1;
++ 
++ 	c->max_tx_lines = MAX_TX_LINES;
++ 	c->max_rx_lines = MAX_RX_LINES;
++ 	c->max_tx_char = MAX_TX_CHAR;
++ 	c->max_rx_char = MAX_RX_CHAR;
++ 	c->tx_lines_sent = 0;
++ 	c->rx_lines_sent = 0;
++ 	c->tx_bytes_sent = 0;
++ 	c->rx_bytes_sent = 0;
++ 	c->tx_bytes_skipped = 0;
++ 	c->rx_bytes_skipped = 0;
++ 	c->rx_passwd_flag = 0;
++     if ( regcomp(&re, "pass(word|phrase| phrase|code)", REG_ICASE|REG_NOSUB|REG_EXTENDED) !=0 ) {
++         error("pw regex failed to compile.");
++         /* disable */
++         c->audit_enable = 0;
++     }
++ #endif
++ 
+  	TAILQ_INIT(&c->status_confirms);
+  	debug("channel %d: new [%s]", found, remote_name);
++ 
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(remote_name, strlen(remote_name));
++ 	s_audit("channel_new_3", "count=%i count=%d count=%i uristring=%s", 
++ 		client_session_id, found, type, t1buf);
++ 	free(t1buf);
++ #endif
++ 
+  	return c;
+  }
+  
+***************
+*** 400,405 ****
+--- 450,462 ----
+  	    c->remote_name ? c->remote_name : "???", n);
+  
+  	s = channel_open_message();
++ 
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(c->remote_name ? c->remote_name : "???", strlen(c->remote_name ? c->remote_name : "???"));
++ 	s_audit("channel_free_3", "count=%i count=%i uristring=%s", client_session_id, c->self, t1buf);
++ 	free(t1buf);
++ #endif
++ 
+  	debug3("channel %d: status: %s", c->self, s);
+  	xfree(s);
+  
+***************
+*** 409,414 ****
+--- 466,477 ----
+  	buffer_free(&c->input);
+  	buffer_free(&c->output);
+  	buffer_free(&c->extended);
++ 
++ #ifdef NERSC_MOD
++ 	buffer_free(&c->rx_line_buf);
++ 	buffer_free(&c->tx_line_buf);
++ #endif
++ 
+  	if (c->remote_name) {
+  		xfree(c->remote_name);
+  		c->remote_name = NULL;
+***************
+*** 1110,1115 ****
+--- 1173,1189 ----
+  	debug2("channel %d: dynamic request: socks4 host %s port %u command %u",
+  	    c->self, c->path, c->host_port, s4_req.command);
+  
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(c->path, strlen(c->path));
++ 	char* t2buf = encode_string(username, strlen(username));
++ 	
++ 	s_audit("channel_socks4_3", "count=%i count=%i uristring=%s port=%i/tcp count=%i uristring=%s",
++ 		client_session_id, c->self, t1buf, c->host_port, s4_req.command, t2buf);
++ 		
++ 	free(t1buf);
++ 	free(t2buf);
++ #endif
++ 
+  	if (s4_req.command != 1) {
+  		debug("channel %d: cannot handle: %s cn %d",
+  		    c->self, need == 1 ? "SOCKS4" : "SOCKS4A", s4_req.command);
+***************
+*** 1237,1242 ****
+--- 1311,1325 ----
+  	debug2("channel %d: dynamic request: socks5 host %s port %u command %u",
+  	    c->self, c->path, c->host_port, s5_req.command);
+  
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(c->path, strlen(c->path));
++ 	
++ 	s_audit("channel_socks5_3", "count=%i count=%i uristring=%s port=%i/tcp count=%i",
++ 		client_session_id, c->self, t1buf, c->host_port, s5_req.command);
++ 		
++ 	free(t1buf);
++ #endif
++ 
+  	s5_rsp.version = 0x05;
+  	s5_rsp.command = SSH_SOCKS5_SUCCESS;
+  	s5_rsp.reserved = 0;			/* ignored */
+***************
+*** 1402,1407 ****
+--- 1485,1503 ----
+  	    rtype, c->listening_port, c->path, c->host_port,
+  	    remote_ipaddr, remote_port);
+  
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(rtype, strlen(rtype));
++ 	char* t2buf = encode_string(c->path, strlen(c->path));
++ 	char* t3buf = encode_string(remote_ipaddr, strlen(remote_ipaddr));
++ 	
++ 	s_audit("channel_port_open_3", "count=%i count=%i uristring=%s port=%d/tcp uristring=%s port=%d/tcp uristring=%s port=%i/tcp",
++ 		client_session_id, c->self, t1buf, c->listening_port, t2buf, c->host_port, t3buf, remote_port);
++ 		
++ 	free(t1buf);
++ 	free(t2buf);
++ 	free(t3buf);
++ #endif
++ 
+  	xfree(c->remote_name);
+  	c->remote_name = xstrdup(buf);
+  
+***************
+*** 1497,1502 ****
+--- 1593,1609 ----
+  		if (c->path != NULL)
+  			nc->path = xstrdup(c->path);
+  
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(c->path, strlen(c->path));
++ 	char* t2buf = encode_string(rtype, strlen(rtype));
++ 
++ 	s_audit("channel_post_fwd_listener_3", "count=%i count=%i port=%d/tcp uristring=%s port=%d/tcp uristring=%s",
++ 		client_session_id, c->self, c->listening_port, t1buf, c->host_port, t2buf); 	
++ 		
++ 	free(t1buf);
++ 	free(t2buf);
++ #endif
++ 
+  		if (nextstate != SSH_CHANNEL_DYNAMIC)
+  			port_open_helper(nc, rtype);
+  	}
+***************
+*** 1645,1650 ****
+--- 1752,1829 ----
+  			}
+  		} else if (c->datagram) {
+  			buffer_put_string(&c->input, buf, len);
++ #ifdef NERSC_MOD
++ 			/* this section for filtering unwanted data */
++ 			if ( !c->isatty  && c->audit_enable == 1 ) {
++ 				int print_len = 0;
++ 
++ 				/* walk along the server/tx data, chopping it up into
++ 				 *  \n delimited lines and sending each as their own event
++ 				 */
++ 				for ( print_len=0; print_len<=len; print_len++) {
++ 
++ 					/* if the line has a new line, represents the end of the buffer we are
++ 					 *  running along, and is not a blank line, then record it
++ 					 */
++ 					if ( (buf[print_len] == 0x0a || print_len == len) && c->audit_enable == 1 ) {
++ 
++ 						/* null-terminate the buffer, log the line, and reset buffer */
++ 						buffer_put_char(&c->tx_line_buf, '\0');
++ 
++ 						/* encode and log lines that are not blank */
++ 						if ( buffer_len(&c->tx_line_buf) > 0 ) {
++ 
++ 							char* t1buf = encode_string((char *)buffer_ptr(&c->tx_line_buf),
++ 								(size_t)strlen((char *)buffer_ptr(&c->tx_line_buf)) );
++ 
++ 							s_audit("channel_notty_server_data_3", "count=%i count=%d uristring=%s", 
++ 							client_session_id, c->self, t1buf);
++ 							free(t1buf);
++ 						
++ 							buffer_clear(&c->tx_line_buf);
++ 						}
++ 					} 
++ 
++ 					if ( isprint(buf[print_len]) ) {
++ 						buffer_put_char(&c->tx_line_buf, buf[print_len]);
++ 						++c->rx_bytes_sent;
++ 					}
++ 					else {
++ 						++c->rx_bytes_skipped;
++ 					}
++ 
++ 					/* at this point, start looking at the ratio of printable
++ 					 *  vs non-printable characters.  Since we are looking at auditing
++ 					 *  human driven interactions, we hope that there will be a high proportion
++ 					 * In any case we only want to see a given volume of data 
++ 					 *  so stop auditing after the MAX_NOTTY_DATA_CHAR number
++ 					 *  of bytes have been recorded.
++ 					 */
++ 					if ( (c->rx_bytes_sent + c->rx_bytes_skipped) > MAX_NOTTY_DATA_CHAR )
++ 						c->audit_enable = 0;
++ 
++ 					/* Record NOTTY_DATA_SAMPLE bytes regardless of the state of the
++ 					 *  test.  The ifprint() should keep the worst of the binary crud
++ 					 *  out of the buffer.  After NOTTY_DATA_SAMPLE bytes, start testing
++ 					 *  for too much binary goo.
++ 					 */
++ 					if ( (c->rx_bytes_sent + c->rx_bytes_skipped) > NOTTY_DATA_SAMPLE ) {
++ 						if ( c->rx_bytes_sent > 0 ) {
++ 
++ 							if ( c->audit_enable == 1 && (  
++ 								(c->rx_bytes_skipped/c->rx_bytes_sent) > NOTTY_BIN_RATIO) ) {
++ 								c->audit_enable = 0;
++ 
++ 								s_audit("channel_notty_analysis_disable_3", "count=%i count=%i int=%i int=%i", 
++ 									client_session_id, c->self, c->rx_bytes_skipped,c->rx_bytes_sent);
++ 							}
++ 						}
++ 					}	
++ 				} /* end ptr traversal loop */
++ 				
++ 			}
++ #endif
++ 
+  		} else {
+  			buffer_append(&c->input, buf, len);
+  		}
+***************
+*** 1705,1710 ****
+--- 1884,1966 ----
+  #endif
+  
+  		len = write(c->wfd, buf, dlen);
++ 
++ #ifdef NERSC_MOD
++ 			/* this section for filtering unwanted data */
++ 			if ( !c->wfd_isatty  && c->audit_enable == 1 ) {
++ 				int print_len = 0;
++ 
++ 				/* walk along the client/tx data, chopping it up into
++ 				 *  \n delimited lines and sending each as their own event
++ 				 */
++ 				for ( print_len=0; print_len<len; print_len++) {
++ 
++ 					/* If the chearacter we are looking at is a new line, the end of the
++ 					 *  buffer we are crawling along and is not a length zero line
++ 					 *  then print it out.
++ 					 */
++ 					if ( (buf[print_len] == 0x0a || print_len == len) && c->audit_enable == 1 ) {
++ 
++ 						/* null-terminate the buffer, log the line, and reset buffer */
++ 						buffer_put_char(&c->rx_line_buf, '\0');
++ 
++ 						/* encode and log lines that are not blank */
++ 						if ( buffer_len(&c->rx_line_buf) > 1 ) {
++ 
++ 							char* t1buf = encode_string((char *)buffer_ptr(&c->rx_line_buf),
++ 								(size_t)strlen((char *)buffer_ptr(&c->rx_line_buf)) );
++ 
++ 							s_audit("channel_notty_client_data_3", "count=%i count=%d uristring=%s", 
++ 								client_session_id, c->self, t1buf);
++ 
++ 							free(t1buf);
++ 						
++ 							buffer_clear(&c->rx_line_buf);
++ 						}
++ 					}
++ 
++ 					if ( isprint( (char)buf[print_len]) ) {
++ 
++ 						buffer_put_char(&c->rx_line_buf, (char)buf[print_len]);
++ 						++c->rx_bytes_sent;
++ 					}
++ 					else {
++ 						++c->rx_bytes_skipped;
++ 					}
++ 
++ 					/* At this point, start looking at the ratio of printable
++ 					 *  vs non-printable characters.  Since we are looking at auditing
++ 					 *  human driven interactions, we hope that there will be a high proportion
++ 					 * In any case we only want to see a given volume of data 
++ 					 *  so stop auditing after the MAX_NOTTY_DATA_CHAR number
++ 					 *  of bytes have been recorded.
++ 					 */
++ 					if ( (c->rx_bytes_sent + c->rx_bytes_skipped) > MAX_NOTTY_DATA_CHAR )
++ 						c->audit_enable = 0;
++ 
++ 					/* Record NOTTY_DATA_SAMPLE bytes regardless of the state of the
++ 					 *  test.  The ifprint() should keep the worst of the binary crud
++ 					 *  out of the buffer.  After NOTTY_DATA_SAMPLE bytes, start testing
++ 					 *  for too much binary goo.
++ 					 */
++ 					if ( (c->rx_bytes_sent + c->rx_bytes_skipped) > NOTTY_DATA_SAMPLE ) {
++ 					
++ 						if ( c->rx_bytes_sent > 0 ) {
++ 
++ 							if ( c->audit_enable == 1 && (  
++ 								(c->rx_bytes_skipped/c->rx_bytes_sent) > NOTTY_BIN_RATIO) ) {
++ 								c->audit_enable = 0;
++ 
++ 								s_audit("channel_notty_analysis_disable_3", "count=%i count=%i int=%i int=%i", 
++ 									client_session_id, c->self, c->rx_bytes_skipped,c->rx_bytes_sent);
++ 							}
++ 
++ 						}
++ 					}	
++ 				} /* end ptr traversal loop */
++ 			}
++ #endif
++ 
+  		if (len < 0 &&
+  		    (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
+  			return 1;
+***************
+*** 2251,2256 ****
+--- 2507,2590 ----
+  				}
+  			}
+  			if (len > 0) {
++ 
++ #ifdef NERSC_MOD
++ 		/* monitor ssh server w/ tty on channel end */
++ 		if ( !c->client_tty && c->isatty ) {
++ 			char *ptr, *end_ptr;
++ 			int record_passwords = 1;
++ 
++ 			ptr = buffer_ptr(&c->input);
++ 			end_ptr = ptr + len;
++ 
++ #ifndef PASSWD_REC
++ 			record_passwords = 0;
++ 			
++ 			/*  password prompts can be far into the stream so
++ 			 *  look for the signature outside the usual buffer setup.
++ 			 */
++ 			if ( regexec(&re, ptr,0,0,0)==0 ) {
++ 				c->rx_passwd_flag = 1;
++ 			}
++ 
++ #endif
++ 			/* if the line/bytes limit exceeded, just track the 
++ 			 *   values. Large chunks of data can then be skipped.
++ 			 */
++ 
++ 			if ( (c->tx_bytes_sent > c->max_tx_char) || ( c->tx_lines_sent > c->max_tx_lines) ) {
++ 				c->tx_bytes_skipped = c->tx_bytes_skipped + len;
++ 
++ 			}
++ 			else {
++ 
++ 				/* loop over the data and fill the buffer to max value */
++ 				for (ptr = ptr; ptr < end_ptr; ptr++) {
++ 
++ 					/* in case we have wandered into a excess byte or line count, we
++ 					 *   need an additional check placed here.
++ 					 */
++ 					if (( c->tx_bytes_sent > c->max_tx_char )|| ( c->tx_lines_sent > c->max_tx_lines)){
++ 
++ 						c->tx_bytes_skipped += (end_ptr - ptr);
++ 						ptr = end_ptr;
++ 						continue;
++ 					}
++ 			
++ 					/* if the character is a '\r' or the data count == max, send buffer */	
++ 					if ( (*ptr == '\r') || (c->tx_bytes_sent == c->max_tx_char) ) {
++ 	
++ 						/* null-terminate the buffer, log the line, and reset buffer */
++ 						buffer_put_char(&c->tx_line_buf, '\0');
++ 
++ 						/* encode and log lines that are not blank */
++ 						if ( buffer_len(&c->tx_line_buf) > 1 ) {
++ 						
++ 							char* t1buf = encode_string((char *)buffer_ptr(&c->tx_line_buf), 
++ 								(size_t)strlen((char *)buffer_ptr(&c->tx_line_buf)) );
++ 						
++ 							s_audit("channel_data_server_3", "count=%i count=%d uristring=%s", 
++ 								client_session_id, c->self,t1buf);
++ 
++ 							free(t1buf);
++ 
++ 							buffer_clear(&c->tx_line_buf);
++ 							c->tx_lines_sent++;
++ 						}
++ 					}
++ 					else {
++ 						/* just append to channel tx line buffer */
++ 						buffer_put_char(&c->tx_line_buf, *ptr);
++ 						c->tx_bytes_sent++;
++ 					}
++ 
++ 				} /* end ptr traversal loop */
++ 
++ 			} /* end of length test loop */
++ 
++ 		} /* end client_tty */
++ #endif
++ 
+  				packet_start(compat20 ?
+  				    SSH2_MSG_CHANNEL_DATA : SSH_MSG_CHANNEL_DATA);
+  				packet_put_int(c->remote_id);
+***************
+*** 2359,2364 ****
+--- 2693,2797 ----
+  	else
+  		buffer_append(&c->output, data, data_len);
+  	packet_check_eom();
++ 
++ #ifdef NERSC_MOD
++ 	/* monitor ssh server w/ tty on channel end */
++ 	if (!c->client_tty && c->isatty ) {
++ 
++ 		char *ptr, *end_ptr;
++ 		end_ptr = data + data_len;
++ 
++ 		/* If we have skipped data, log it now then reset the whole tx buffer
++ 		 *  since we take the existance of client activity as an indication
++ 		 *  that there may be life at the end of the tty...
++ 		 *
++ 		 * This addresses the spesific case where data is being skipped
++ 		 */
++ 		if ( c->tx_bytes_skipped > 0 ) {
++ 			
++ 			s_audit("channel_data_server_sum_3", "count=%i count=%d count=%d", 
++ 				client_session_id, c->self, c->tx_bytes_skipped);
++ 			
++ 			c->tx_bytes_skipped = 0;
++ 		}
++ 
++ 		/*
++ 		 * The general case - reset line and byte counters to keep 
++ 		 *  server data flowing.
++ 		 */
++ 		c->tx_lines_sent = 0;
++ 		c->tx_bytes_sent = 0;
++ 
++ 		/* Skip data if the line/bytes limit exceeded */
++ 		if ( (c->rx_bytes_sent > c->max_rx_char) || ( c->rx_lines_sent > c->max_rx_lines) ) {
++ 			c->rx_bytes_skipped = c->rx_bytes_skipped + data_len;
++ 		}
++ 		else {
++ 
++ 			for (ptr = data; ptr < end_ptr; ptr++) {
++ 
++ 				/*   need an additional check placed here for excess byte/line count */
++ 				if (( c->rx_bytes_sent > c->max_rx_char )|| ( c->rx_lines_sent > c->max_rx_lines)){
++ 
++ 					c->rx_bytes_skipped += (end_ptr - ptr);
++ 					ptr = end_ptr;
++ 					continue;
++ 				}
++ 		
++ 				if (*ptr == '\r') {
++ 
++ 					/* skip blank lines */
++ 					if (buffer_len(&c->rx_line_buf) == 0) 
++ 						continue;
++ 
++ 					/* null terminate buffer */
++ 					buffer_put_char(&c->rx_line_buf, '\0');
++ 
++ 					/* the received line is a password prompt reply
++ 					 * if --with-passwdrec is enabled at configure time
++ 					 * this section of code will never be reached */
++ 				 
++ 					if (c->rx_passwd_flag == 1) {
++ 					
++ 						s_audit("channel_data_client_3", "count=%i count=%d uristring=%s", 
++ 							client_session_id, c->self, "PASSWD-FLAG-SKIP");
++ 
++ 						/* this additional event helps identify problems with the pass-skip */
++ 						s_audit("channel_pass_skip_3", "count=%i count=%d", 
++ 							client_session_id, c->self);
++ 
++ 						c->rx_passwd_flag = 0;
++ 					}
++ 					else {
++ 			
++ 						/* send the client data */	
++ 						char* t1buf = encode_string((char *)buffer_ptr(&c->rx_line_buf), 
++ 								(size_t)strlen((char *)buffer_ptr(&c->rx_line_buf)));
++ 
++ 						s_audit("channel_data_client_3", "count=%i count=%d uristring=%s", 
++ 							client_session_id, c->self, t1buf);
++ 
++ 						free(t1buf);
++ 					}
++ 
++ 					/* reset rx line buffer */
++ 					buffer_clear(&c->rx_line_buf);
++ 					c->rx_bytes_sent = 0;
++ 					c->rx_lines_sent = 0;
++ 					c->rx_bytes_skipped = 0;
++ 				}
++ 				else {
++ 					/* append input to rx line buffer */
++ 					buffer_put_char(&c->rx_line_buf, *ptr);
++ 					c->rx_bytes_sent += buffer_len(&c->rx_line_buf);
++ 				}
++ 
++ 			} /* end of ptr traversal loop */
++ 
++ 		} /* end of length test */
++ 
++ 	} /* end tty check */
++ #endif
+  }
+  
+  /* ARGSUSED */
+***************
+*** 2857,2862 ****
+--- 3290,3304 ----
+  		else
+  			c->listening_port = listen_port;
+  		success = 1;
++ 
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(host, strlen(host));
++ 	s_audit("channel_set_fwd_listener_3", "count=%i count=%i count=%i count=%i uristring=%s port=%i/tcp port=%i/tcp", 
++ 		client_session_id, c->self, type, wildcard, t1buf, port_to_connect, listen_port);
++ 
++ 	free(t1buf);
++ #endif
++ 
+  	}
+  	if (success == 0)
+  		error("channel_setup_fwd_listener: cannot listen to port: %d",
+diff --new-file -c openssh-6.2p2_/channels.h openssh-6.2p2/channels.h
+*** openssh-6.2p2_/channels.h	2012-04-21 20:21:10.000000000 -0500
+--- openssh-6.2p2/channels.h	2013-07-23 13:20:39.000000000 -0500
+***************
+*** 157,162 ****
+--- 157,181 ----
+  	mux_callback_fn		*mux_rcb;
+  	void			*mux_ctx;
+  	int			mux_pause;
++ #ifdef NERSC_MOD
++ 	Buffer  rx_line_buf;
++ 	Buffer  tx_line_buf;
++ 	int     audit_enable;
++ 
++ 	int     max_tx_lines;
++ 	int     max_rx_lines;
++ 	int     max_tx_char;
++ 	int     max_rx_char;
++ 
++ 	int     tx_lines_sent;
++ 	int     rx_lines_sent;
++ 	int     tx_bytes_sent;
++ 	int     rx_bytes_sent;
++ 	int     tx_bytes_skipped;
++ 	int     rx_bytes_skipped;
++ 	int     rx_passwd_flag;
++ 	int	tx_aux_size;
++ #endif
+  };
+  
+  #define CHAN_EXTENDED_IGNORE		0
+diff --new-file -c openssh-6.2p2_/config.h.in openssh-6.2p2/config.h.in
+*** openssh-6.2p2_/config.h.in	2013-05-15 20:35:08.000000000 -0500
+--- openssh-6.2p2/config.h.in	2013-07-23 13:20:39.000000000 -0500
+***************
+*** 1335,1340 ****
+--- 1335,1349 ----
+  /* Need setpgrp to acquire controlling tty */
+  #undef NEED_SETPGRP
+  
++ /* define for NERSC mods */
++ #undef NERSC_MOD
++ 
++ /* define for NERSC mods */
++ #undef STUNNEL_HOST
++ 
++ /* define for NERSC mods */
++ #undef STUNNEL_PORT
++ 
+  /* compiler does not accept __attribute__ on return types */
+  #undef NO_ATTRIBUTE_ON_RETURN_TYPE
+  
+diff --new-file -c openssh-6.2p2_/configure openssh-6.2p2/configure
+*** openssh-6.2p2_/configure	2013-05-15 20:35:15.000000000 -0500
+--- openssh-6.2p2/configure	2013-07-23 13:20:39.000000000 -0500
+***************
+*** 1426,1431 ****
+--- 1426,1435 ----
+    --with-privsep-user=user Specify non-privileged user for privilege separation
+    --with-sandbox=style    Specify privilege separation sandbox (no, darwin, rlimit, systrace, seccomp_filter)
+    --with-selinux          Enable SELinux support
++   --with-nerscmod         Add sshd instrumentation
++   --with-stunnelport=PORT Set stunnel port if other than 799/tcp
++   --with-stunnelhost=HOST Set stunnel host if other than localhost.  Do not quote.
++   --with-passwdrec        Record password data
+    --with-kerberos5=PATH   Enable Kerberos 5 support
+    --with-privsep-path=xxx Path for privilege separation chroot (default=/var/empty)
+    --with-xauth=PATH       Specify path to xauth program
+***************
+*** 15356,15361 ****
+--- 15360,15457 ----
+  fi
+  
+  
++ NERSC_MOD='no'
++ 
++ # Check whether --with-nerscmod was given.
++ if test "${with_nerscmod+set}" = set; then
++   withval=$with_nerscmod;
++ 		if test "x$withval" != "xno" ; then
++ 			NERSC_MOD='yes'
++ 
++ cat >>confdefs.h <<\_ACEOF
++ #define NERSC_MOD 1
++ _ACEOF
++ 
++ 			{ echo "$as_me:$LINENO: result: yes" >&5
++ echo "${ECHO_T}yes" >&6; }
++ 
++ 		fi
++ 
++ 
++ fi
++ 
++ 
++ STUNNEL_PORT='799'
++ 
++ 
++ # Check whether --with-stunnelport was given.
++ if test "${with_stunnelport+set}" = set; then
++   withval=$with_stunnelport;
++ 
++ 		case "$withval" in
++ 		[0-9]*)
++ 			STUNNEL_PORT="$withval"
++ 			;;
++ 		*)
++ 			{ { echo "$as_me:$LINENO: error: You must specify a numeric port number for --with-stunnelport" >&5
++ echo "$as_me: error: You must specify a numeric port number for --with-stunnelport" >&2;}
++    { (exit 1); exit 1; }; }
++ 			;;
++ 		esac
++ 
++ 		if test ! -z "$withval"  ; then
++ 			#STUNNEL_PORT="$withval"
++ 
++ cat >>confdefs.h <<_ACEOF
++ #define STUNNEL_PORT $STUNNEL_PORT
++ _ACEOF
++ 
++ 		fi
++ 
++ 
++ fi
++ 
++ 
++ STUNNEL_HOST='localhost'
++ 
++ # Check whether --with-stunnelhost was given.
++ if test "${with_stunnelhost+set}" = set; then
++   withval=$with_stunnelhost;
++ 
++ 		STUNNEL_HOST="localhost"
++ 
++ 		if test "x$withval" != "xno"  ; then
++ 			STUNNEL_HOST="\"$withval\""
++ 
++ cat >>confdefs.h <<_ACEOF
++ #define STUNNEL_HOST $STUNNEL_HOST
++ _ACEOF
++ 
++ 		fi
++ 
++ 
++ fi
++ 
++ 
++ 
++ PASSWD_REC='no'
++ 
++ # Check whether --with-passwdrec was given.
++ if test "${with_passwdrec+set}" = set; then
++   withval=$with_passwdrec;
++ 		if test "x$withval" != "xno" ; then
++ 			PASSWD_REC='yes'
++ cat >>confdefs.h <<\_ACEOF
++ #define PASSWD_REC 1
++ _ACEOF
++ 
++ 			{ echo "$as_me:$LINENO: result: yes" >&5
++ echo "${ECHO_T}yes" >&6; }
++ 
++ 		fi
++ 
++ 
++ fi
+  
+  
+  # Check whether user wants Kerberos 5 support
+***************
+*** 18474,18479 ****
+--- 18570,18579 ----
+  echo "           Translate v4 in v6 hack: $IPV4_IN6_HACK_MSG"
+  echo "                  BSD Auth support: $BSD_AUTH_MSG"
+  echo "              Random number source: $RAND_MSG"
++ echo "              NERSC Mods          : $NERSC_MOD"
++ echo "              STUNNEL Host        : $STUNNEL_HOST"
++ echo "              STUNNEL Port        : $STUNNEL_PORT"
++ echo "              Record Passwd Data  : $PASSWD_REC"
+  echo "             Privsep sandbox style: $SANDBOX_STYLE"
+  
+  echo ""
+diff --new-file -c openssh-6.2p2_/configure.ac openssh-6.2p2/configure.ac
+*** openssh-6.2p2_/configure.ac	2013-03-19 20:55:15.000000000 -0500
+--- openssh-6.2p2/configure.ac	2013-07-23 14:12:37.000000000 -0500
+***************
+*** 3653,3658 ****
+--- 3653,3721 ----
+  AC_SUBST([SSHLIBS])
+  AC_SUBST([SSHDLIBS])
+  
++ NERSC_MOD='no'
++ AC_ARG_WITH(nerscmod,
++ 	[  --with-nerscmod Add sshd instrumentation],
++ 	[
++ 		if test "x$withval" != "xno" ; then
++ 			NERSC_MOD='yes'
++ 			AC_DEFINE(NERSC_MOD, 1, [define for NERSC mods])
++ 			AC_MSG_RESULT(yes)
++ 
++ 		fi
++ 	]
++ )
++ 
++ STUNNEL_PORT='799'
++ AC_ARG_WITH(stunnelport,
++ 	[  --with-stunnelport=PORT     Set stunnel port if other than 799/tcp ],
++ 	[
++ 
++ 		case "$withval" in
++ 		[[0-9]]*)
++ 			STUNNEL_PORT="$withval"
++ 			;;
++ 		*)
++ 			AC_MSG_ERROR(You must specify a numeric port number for --with-stunnelport)
++ 			;;
++ 		esac
++ 
++ 		if test ! -z "$withval"  ; then
++ 			#STUNNEL_PORT="$withval"
++ 			AC_DEFINE_UNQUOTED(STUNNEL_PORT, $STUNNEL_PORT, [define for NERSC mods])
++ 		fi
++ 	]
++ )
++ 
++ STUNNEL_HOST='localhost'
++ AC_ARG_WITH(stunnelhost,
++ 	[  --with-stunnelhost=HOST      Set stunnel host if other than localhost.  Do not quote.],
++ 	[
++ 
++ 		STUNNEL_HOST="localhost"
++ 
++ 		if test "x$withval" != "xno"  ; then
++ 			STUNNEL_HOST="\"$withval\""
++ 			AC_DEFINE_UNQUOTED(STUNNEL_HOST, $STUNNEL_HOST, [define for NERSC mods])
++ 		fi
++ 	]
++ )
++ 
++ 
++ PASSWD_REC='no'
++ AC_ARG_WITH(passwdrec,
++ 	[  --with-passwdrec record password data],
++ 	[
++ 		if test "x$withval" != "xno" ; then
++ 			PASSWD_REC='yes'
++ 			AC_DEFINE(PASSWD_REC, 1, [set to record password info])
++ 			AC_MSG_RESULT(yes)
++ 
++ 		fi
++ 	]
++ )
++ 
++ 
+  # Check whether user wants Kerberos 5 support
+  KRB5_MSG="no"
+  AC_ARG_WITH([kerberos5],
+***************
+*** 4580,4585 ****
+--- 4643,4654 ----
+  echo "           Translate v4 in v6 hack: $IPV4_IN6_HACK_MSG"
+  echo "                  BSD Auth support: $BSD_AUTH_MSG"
+  echo "              Random number source: $RAND_MSG"
++ echo "              NERSC Mods          : $NERSC_MOD"
++ if test "x$NERSC_MOD" = "xyes" ; then
++ echo "              STUNNEL Host        : $STUNNEL_HOST"
++ echo "              STUNNEL Port        : $STUNNEL_PORT"
++ echo "              Record Passwd Data  : $PASSWD_REC"
++ fi
+  echo "             Privsep sandbox style: $SANDBOX_STYLE"
+  
+  echo ""
+Common subdirectories: openssh-6.2p2_/contrib and openssh-6.2p2/contrib
+diff --new-file -c openssh-6.2p2_/modp_burl.c openssh-6.2p2/modp_burl.c
+*** openssh-6.2p2_/modp_burl.c	1969-12-31 18:00:00.000000000 -0600
+--- openssh-6.2p2/modp_burl.c	2013-07-23 14:12:37.000000000 -0500
+***************
+*** 0 ****
+--- 1,200 ----
++ /* -*- mode: c++; c-basic-offset: 4; indent-tabs-mode: nil; tab-width: 4 -*- */
++ /* vi: set expandtab shiftwidth=4 tabstop=4: */
++ 
++ /**
++  * \file
++  * <pre>
++  * BFASTURL.c High performance URL encoder/decoder
++  * http://code.google.com/p/stringencoders/
++  *
++  * Copyright &copy; 2006,2007  Nick Galbreath -- nickg [at] modp [dot] com
++  * All rights reserved.
++  *
++  * Redistribution and use in source and binary forms, with or without
++  * modification, are permitted provided that the following conditions are
++  * met:
++  *
++  *   Redistributions of source code must retain the above copyright
++  *   notice, this list of conditions and the following disclaimer.
++  *
++  *   Redistributions in binary form must reproduce the above copyright
++  *   notice, this list of conditions and the following disclaimer in the
++  *   documentation and/or other materials provided with the distribution.
++  *
++  *   Neither the name of the modp.com nor the names of its
++  *   contributors may be used to endorse or promote products derived from
++  *   this software without specific prior written permission.
++  *
++  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++  * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
++  * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
++  * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
++  * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++  * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++  *
++  * This is the standard "new" BSD license:
++  * http://www.opensource.org/licenses/bsd-license.php
++  * </PRE>
++  */
++ 
++ #include "includes.h"
++ #ifdef NERSC_MOD
++ 
++ #include "modp_burl.h"
++ #include "modp_stdint.h"
++ #include "modp_burl_data.h"
++ 
++ int modp_burl_encode(char* dest, const char* src, int len)
++ {
++ 
++     const char* deststart = dest;
++     const uint8_t* s = (const uint8_t*)src;
++     const uint8_t* srcend = s + len;
++     char c;
++     uint8_t x;
++ 
++     while (s < srcend) {
++         x = *s++;
++         c = (char)gsUrlEncodeMap[x];
++         if (c) {
++             *dest++ = c;
++         } else {
++             *dest++ = '%';
++             *dest++ = (char)gsHexEncodeMap1[x];
++             *dest++ = (char)gsHexEncodeMap2[x];
++             /*
++               is the equiv of this
++               static const char sHexChars[] = "0123456789ABCDEF";
++               *dest++ = (char)sHexChars[x >> 4];
++               *dest++ = (char)sHexChars[x & 0x0F];
++               */
++         }
++     }
++     *dest = '\0';
++     return (int)(dest - deststart); // compute "strlen" of dest.
++ }
++ 
++ /**
++  * The implementation is identical except it uses a
++  * different array
++  */
++ int modp_burl_min_encode(char* dest, const char* src, int len)
++ {
++ 
++     const char* deststart = dest;
++     const uint8_t* s = (const uint8_t*)src;
++     const uint8_t* srcend = s + len;
++     char c;
++     uint8_t x;
++ 
++     while (s < srcend) {
++         x = *s++;
++         c = (char)(gsUrlEncodeMinMap[x]); /** CHANGE HERE **/
++         if (c) {
++             *dest++ = c;
++         } else {
++             *dest++ = '%';
++             *dest++ = (char) gsHexEncodeMap1[x];
++             *dest++ = (char)(gsHexEncodeMap2[x]);
++             /*
++               is the equiv of this
++               static const char sHexChars[] = "0123456789ABCDEF";
++               *dest++ = sHexChars[x >> 4];
++               *dest++ = sHexChars[x & 0x0F];
++               */
++         }
++     }
++     *dest = '\0';
++     return (int)(dest - deststart); // compute "strlen" of dest.
++ }
++ 
++ /**
++  * Give exact size of encoded output string
++  * without doing the encoding
++  */
++ int modp_burl_encode_strlen(const char* src, const int len)
++ {
++     int count = 0;
++     const char* srcend = src + len;
++     while (src < srcend) {
++         if (gsUrlEncodeMap[ (uint8_t) *src++]) {
++             count++;
++         } else {
++             count += 3;
++         }
++     }
++     return count;
++ }
++ 
++ /**
++  * Give exact size of encoded output string
++  * without doing the encoding
++  */
++ int modp_burl_min_encode_strlen(const char* src, const int len)
++ {
++     int count = 0;
++     const char* srcend = src + len;
++     while (src < srcend) {
++         if (gsUrlEncodeMinMap[ (uint8_t) *src++]) {
++             count++;
++         } else {
++             count += 3;
++         }
++     }
++     return count;
++ }
++ 
++ int modp_burl_decode(char* dest, const char* s, int len)
++ {
++     uint32_t d = 0; // used for decoding %XX
++     const uint8_t* src = (const uint8_t*) s;
++     const char* deststart = dest;
++     const uint8_t* srcend = (const uint8_t*)(src + len);
++     const uint8_t* srcendloop = (const uint8_t*)(srcend - 2);
++ 
++     while (src < srcendloop) {
++         switch (*src) {
++         case '+':
++             *dest++ = ' ';
++             src++;
++             break;
++         case '%':
++             d = (gsHexDecodeMap[(uint32_t)(*(src + 1))] << 4) |
++                 gsHexDecodeMap[(uint32_t)(*(src + 2))];
++             if (d < 256) { // if one of the hex chars is bad,  d >= 256
++                 *dest = (char) d;
++                 dest++;
++                 src += 3;
++             } else {
++                 *dest++ = '%';
++                 src++;
++             }
++             break;
++         default:
++             *dest++ = (char) *src++;
++         }
++     }
++ 
++     // handle last two chars
++     // dont decode "%XX"
++     while (src < srcend) {
++         switch (*src) {
++         case '+':
++             *dest++ = ' ';
++             src++;
++             break;
++         default:
++             *dest++ = (char)( *src++);
++         }
++     }
++ 
++     *dest = '\0';
++     return (int)(dest - deststart); // compute "strlen" of dest.
++ }
++ 
++ #endif /* NERSC_MOD */
+diff --new-file -c openssh-6.2p2_/modp_burl.h openssh-6.2p2/modp_burl.h
+*** openssh-6.2p2_/modp_burl.h	1969-12-31 18:00:00.000000000 -0600
+--- openssh-6.2p2/modp_burl.h	2013-07-23 13:20:39.000000000 -0500
+***************
+*** 0 ****
+--- 1,211 ----
++ /* -*- mode: c++; c-basic-offset: 4; indent-tabs-mode: nil; tab-width: 4 -*- */
++ /* vi: set expandtab shiftwidth=4 tabstop=4: */
++ 
++ /**
++  * \file
++  * <PRE>
++  * High Performance URL Encoder/Decoder
++  *
++  * Copyright &copy; 2006, 2007  Nick Galbreath -- nickg [at] modp [dot] com
++  * All rights reserved.
++  *
++  * http://code.google.com/p/stringencoders/
++  *
++  * Released under bsd license.  See bfast64.c for details.
++  * </PRE>
++  */
++ 
++ #ifndef COM_MODP_STRINGENCODERS_BURL
++ #define COM_MODP_STRINGENCODERS_BURL
++ 
++ #ifdef __cplusplus
++ #define BEGIN_C extern "C" {
++ #define END_C }
++ #else
++ #define BEGIN_C
++ #define END_C
++ #endif
++ 
++ BEGIN_C
++ 
++ /**
++  * Url encode a string.  This uses a very strict definition of url
++  * encoding.  The only characters NOT encoded are A-Z, a-z, 0-9, "-",
++  * "_", ".", along with the space char getting mapped to "+".
++  * Everything else is escaped using "%HEXHEX" format.  This is
++  * identical to the implementation of php's urlencode and nearly
++  * identical to Java's UrlEncoder class (they do not escape '*' for
++  * some reason).
++  *
++  * \param[out] dest output string.  Must
++  * \param[in] str The input string
++  * \param[in] len  The length of the input string, excluding any
++  *   final null byte.
++  */
++ int modp_burl_encode(char* dest, const char* str, int len);
++ 
++ /**
++  * Url encode a string.  This uses a minimal definition of url
++  * encoding.  This works similar to the previous function except '~',
++  * '!', '$', '\'', '(', ')', '*', ',', ';', ':', '@', '/', '?' are NOT
++  * escaped.  This will allow decoding by standard url-decoders and
++  * make the encoded urls more readable.
++  *
++  * \param[out] dest output string.  Must
++  * \param[in] str The input string
++  * \param[in] len  The length of the input string, excluding any
++  *   final null byte.
++  */
++ int modp_burl_min_encode(char* dest, const char* str, int len);
++ 
++ /** \brief get size of output string w/o doing actual encoding
++  *
++  * \param[in] src input string, not null
++  * \param[in] len length of input string
++  * \return length of output string NOT including any final null byte
++  */
++ int modp_burl_min_encode_strlen(const char* src, const int len);
++ 
++ /**
++  * Provides the maximum size for output string given
++  * and input size of A bytes.
++  */
++ #define modp_burl_encode_len(A) (3*A + 1)
++ 
++ /**
++  * Given the exact size of output string.
++  *
++  * Can be used to allocate the right amount of memory for
++  * modp_burl_encode.  Be sure to add 1 byte for final null.
++  *
++  * This is somewhat expensive since it examines every character
++  *  in the input string
++  *
++  * \param[in] str  The input string
++  * \param[in] len  THe length of the input string, excluding any
++  *   final null byte (i.e. strlen(str))
++  * \return the size of the output string, excluding the final
++  *   null byte.
++  */
++ int modp_burl_encode_strlen(const char* str, const int len);
++ 
++ /**
++  * URL Decode a string
++  *
++  * \param[out] dest  The output string.  Must be at least (len + 1)
++  *  bytes allocated.  This may be the same as the input buffer.
++  * \param[in] str The input string that is URL encoded.
++  * \param[in] len The length of the input string (excluding final
++  *   null byte)
++  * \return the strlen of the output string.
++  */
++ int modp_burl_decode(char* dest, const char* str, int len);
++ 
++ /**
++  * Returns memory required to decoded a url-encoded
++  * string of length A.
++  *
++  */
++ #define modp_burl_decode_len(A) (A + 1)
++ 
++ END_C
++ 
++ #ifdef __cplusplus
++ #include <cstring>
++ #include <string>
++ 
++ namespace modp {
++ 
++     inline std::string url_encode(const char* s, size_t len)
++     {
++         std::string x(modp_burl_encode_len(len), '\0');
++         int d = modp_burl_encode(const_cast<char*>(x.data()), s, len);
++         x.erase(d, std::string::npos);
++         return x;
++     }
++ 
++     inline std::string url_encode(const char* s)
++     {
++         return url_encode(s, strlen(s));
++     }
++ 
++     inline std::string url_encode(const std::string& s)
++     {
++         return url_encode(s.data(), s.size());
++     }
++ 
++     /**
++      * Standard (maximal) url encoding.
++      *
++      * \param[in,out] s the string to be encoded
++      * \return a reference to the input string
++      */
++     inline std::string& url_encode(std::string& s)
++     {
++         std::string x(url_encode(s.data(), s.size()));
++         s.swap(x);
++         return s;
++     }
++ 
++     /**
++      * Minimal Url Encoding
++      *
++      * \param[in,out] s the string to be encoded
++      * \return a reference to the input string
++      */
++     inline std::string& url_min_encode(std::string& s)
++     {
++         std::string x(modp_burl_encode_len(s.size()), '\0');
++         int d = modp_burl_min_encode(const_cast<char*>(x.data()), s.data(), s.size());
++         x.erase(d, std::string::npos);
++         s.swap(x);
++         return s;
++     }
++ 
++     inline std::string url_min_encode(const std::string& s)
++     {
++         std::string x(modp_burl_encode_len(s.size()), '\0');
++         int d = modp_burl_min_encode(const_cast<char*>(x.data()), s.data(), s.size());
++         x.erase(d, std::string::npos);
++         return x;
++     }
++ 
++     /**
++      * Url decode a string.
++      * This function does not allocate memory.
++      *
++      * \param[in,out] s the string to be decoded
++      * \return a reference to the input string.
++      *      There is no error case, bad characters are passed through
++      */
++     inline std::string& url_decode(std::string& s)
++     {
++         int d = modp_burl_decode(const_cast<char*>(s.data()), s.data(), s.size());
++         s.erase(d, std::string::npos);
++         return s;
++     }
++ 
++     inline std::string url_decode(const char* str)
++     {
++         std::string s(str);
++         url_decode(s);
++         return s;
++     }
++ 
++     inline std::string url_decode(const char* str, size_t len)
++     {
++         std::string s(str, len);
++         url_decode(s);
++         return s;
++     }
++ 
++     inline std::string url_decode(const std::string& s)
++     {
++         std::string x(s);
++         url_decode(x);
++         return x;
++     }
++ }
++ #endif
++ 
++ #endif
+diff --new-file -c openssh-6.2p2_/modp_burl_data.h openssh-6.2p2/modp_burl_data.h
+*** openssh-6.2p2_/modp_burl_data.h	1969-12-31 18:00:00.000000000 -0600
+--- openssh-6.2p2/modp_burl_data.h	2013-07-23 13:20:39.000000000 -0500
+***************
+*** 0 ****
+--- 1,141 ----
++ static const unsigned char gsUrlEncodeMap[256] = {
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0',  '+', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0',  '-',  '.', '\0',  '0',  '1',
++  '2',  '3',  '4',  '5',  '6',  '7',  '8',  '9', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0',  'A',  'B',  'C',  'D',  'E',
++  'F',  'G',  'H',  'I',  'J',  'K',  'L',  'M',  'N',  'O',
++  'P',  'Q',  'R',  'S',  'T',  'U',  'V',  'W',  'X',  'Y',
++  'Z', '\0', '\0', '\0', '\0',  '_', '\0',  'a',  'b',  'c',
++  'd',  'e',  'f',  'g',  'h',  'i',  'j',  'k',  'l',  'm',
++  'n',  'o',  'p',  'q',  'r',  's',  't',  'u',  'v',  'w',
++  'x',  'y',  'z', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0'
++ };
++ 
++ static const unsigned char gsUrlEncodeMinMap[256] = {
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0',  '+',  '!', '\0', '\0',  '$', '\0', '\0', '\0',
++  '(',  ')',  '*', '\0',  ',',  '-',  '.',  '/',  '0',  '1',
++  '2',  '3',  '4',  '5',  '6',  '7',  '8',  '9',  ':',  ';',
++ '\0', '\0', '\0',  '?',  '@',  'A',  'B',  'C',  'D',  'E',
++  'F',  'G',  'H',  'I',  'J',  'K',  'L',  'M',  'N',  'O',
++  'P',  'Q',  'R',  'S',  'T',  'U',  'V',  'W',  'X',  'Y',
++  'Z', '\0', '\0', '\0', '\0',  '_', '\0',  'a',  'b',  'c',
++  'd',  'e',  'f',  'g',  'h',  'i',  'j',  'k',  'l',  'm',
++  'n',  'o',  'p',  'q',  'r',  's',  't',  'u',  'v',  'w',
++  'x',  'y',  'z', '\0', '\0', '\0',  '~', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
++ '\0', '\0', '\0', '\0', '\0', '\0'
++ };
++ 
++ static const uint32_t gsHexDecodeMap[256] = {
++ 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
++ 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
++ 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
++ 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
++   0,   1,   2,   3,   4,   5,   6,   7,   8,   9, 256, 256,
++ 256, 256, 256, 256, 256,  10,  11,  12,  13,  14,  15, 256,
++ 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
++ 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
++ 256,  10,  11,  12,  13,  14,  15, 256, 256, 256, 256, 256,
++ 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
++ 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
++ 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
++ 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
++ 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
++ 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
++ 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
++ 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
++ 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
++ 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
++ 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
++ 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
++ 256, 256, 256, 256
++ };
++ 
++ static const unsigned char gsHexEncodeMap1[256] = {
++  '0',  '0',  '0',  '0',  '0',  '0',  '0',  '0',  '0',  '0',
++  '0',  '0',  '0',  '0',  '0',  '0',  '1',  '1',  '1',  '1',
++  '1',  '1',  '1',  '1',  '1',  '1',  '1',  '1',  '1',  '1',
++  '1',  '1',  '2',  '2',  '2',  '2',  '2',  '2',  '2',  '2',
++  '2',  '2',  '2',  '2',  '2',  '2',  '2',  '2',  '3',  '3',
++  '3',  '3',  '3',  '3',  '3',  '3',  '3',  '3',  '3',  '3',
++  '3',  '3',  '3',  '3',  '4',  '4',  '4',  '4',  '4',  '4',
++  '4',  '4',  '4',  '4',  '4',  '4',  '4',  '4',  '4',  '4',
++  '5',  '5',  '5',  '5',  '5',  '5',  '5',  '5',  '5',  '5',
++  '5',  '5',  '5',  '5',  '5',  '5',  '6',  '6',  '6',  '6',
++  '6',  '6',  '6',  '6',  '6',  '6',  '6',  '6',  '6',  '6',
++  '6',  '6',  '7',  '7',  '7',  '7',  '7',  '7',  '7',  '7',
++  '7',  '7',  '7',  '7',  '7',  '7',  '7',  '7',  '8',  '8',
++  '8',  '8',  '8',  '8',  '8',  '8',  '8',  '8',  '8',  '8',
++  '8',  '8',  '8',  '8',  '9',  '9',  '9',  '9',  '9',  '9',
++  '9',  '9',  '9',  '9',  '9',  '9',  '9',  '9',  '9',  '9',
++  'A',  'A',  'A',  'A',  'A',  'A',  'A',  'A',  'A',  'A',
++  'A',  'A',  'A',  'A',  'A',  'A',  'B',  'B',  'B',  'B',
++  'B',  'B',  'B',  'B',  'B',  'B',  'B',  'B',  'B',  'B',
++  'B',  'B',  'C',  'C',  'C',  'C',  'C',  'C',  'C',  'C',
++  'C',  'C',  'C',  'C',  'C',  'C',  'C',  'C',  'D',  'D',
++  'D',  'D',  'D',  'D',  'D',  'D',  'D',  'D',  'D',  'D',
++  'D',  'D',  'D',  'D',  'E',  'E',  'E',  'E',  'E',  'E',
++  'E',  'E',  'E',  'E',  'E',  'E',  'E',  'E',  'E',  'E',
++  'F',  'F',  'F',  'F',  'F',  'F',  'F',  'F',  'F',  'F',
++  'F',  'F',  'F',  'F',  'F',  'F'
++ };
++ 
++ static const unsigned char gsHexEncodeMap2[256] = {
++  '0',  '1',  '2',  '3',  '4',  '5',  '6',  '7',  '8',  '9',
++  'A',  'B',  'C',  'D',  'E',  'F',  '0',  '1',  '2',  '3',
++  '4',  '5',  '6',  '7',  '8',  '9',  'A',  'B',  'C',  'D',
++  'E',  'F',  '0',  '1',  '2',  '3',  '4',  '5',  '6',  '7',
++  '8',  '9',  'A',  'B',  'C',  'D',  'E',  'F',  '0',  '1',
++  '2',  '3',  '4',  '5',  '6',  '7',  '8',  '9',  'A',  'B',
++  'C',  'D',  'E',  'F',  '0',  '1',  '2',  '3',  '4',  '5',
++  '6',  '7',  '8',  '9',  'A',  'B',  'C',  'D',  'E',  'F',
++  '0',  '1',  '2',  '3',  '4',  '5',  '6',  '7',  '8',  '9',
++  'A',  'B',  'C',  'D',  'E',  'F',  '0',  '1',  '2',  '3',
++  '4',  '5',  '6',  '7',  '8',  '9',  'A',  'B',  'C',  'D',
++  'E',  'F',  '0',  '1',  '2',  '3',  '4',  '5',  '6',  '7',
++  '8',  '9',  'A',  'B',  'C',  'D',  'E',  'F',  '0',  '1',
++  '2',  '3',  '4',  '5',  '6',  '7',  '8',  '9',  'A',  'B',
++  'C',  'D',  'E',  'F',  '0',  '1',  '2',  '3',  '4',  '5',
++  '6',  '7',  '8',  '9',  'A',  'B',  'C',  'D',  'E',  'F',
++  '0',  '1',  '2',  '3',  '4',  '5',  '6',  '7',  '8',  '9',
++  'A',  'B',  'C',  'D',  'E',  'F',  '0',  '1',  '2',  '3',
++  '4',  '5',  '6',  '7',  '8',  '9',  'A',  'B',  'C',  'D',
++  'E',  'F',  '0',  '1',  '2',  '3',  '4',  '5',  '6',  '7',
++  '8',  '9',  'A',  'B',  'C',  'D',  'E',  'F',  '0',  '1',
++  '2',  '3',  '4',  '5',  '6',  '7',  '8',  '9',  'A',  'B',
++  'C',  'D',  'E',  'F',  '0',  '1',  '2',  '3',  '4',  '5',
++  '6',  '7',  '8',  '9',  'A',  'B',  'C',  'D',  'E',  'F',
++  '0',  '1',  '2',  '3',  '4',  '5',  '6',  '7',  '8',  '9',
++  'A',  'B',  'C',  'D',  'E',  'F'
++ };
++ 
+diff --new-file -c openssh-6.2p2_/modp_stdint.h openssh-6.2p2/modp_stdint.h
+*** openssh-6.2p2_/modp_stdint.h	1969-12-31 18:00:00.000000000 -0600
+--- openssh-6.2p2/modp_stdint.h	2013-07-23 13:20:39.000000000 -0500
+***************
+*** 0 ****
+--- 1,21 ----
++ /* vi: set ft=c expandtab shiftwidth=4 tabstop=4: */
++ #ifndef MODP_STDINT_H_
++ #define MODP_STDINT_H_
++ 
++ #ifndef _WIN32
++ #  include <stdint.h>
++ #else
++ /* win64 is llp64 so these are the same for 32/64bit
++    so no check for _WIN64 is required.
++  */
++   typedef unsigned char uint8_t;
++   typedef signed char int8_t;
++   typedef unsigned short uint16_t;
++   typedef signed short int16_t;
++   typedef unsigned int uint32_t;
++   typedef signed int int32_t;
++   typedef unsigned __int64 uint64_t;
++   typedef signed __int64 int64_t;
++ #endif
++ 
++ #endif /* MODP_STDINT_H_ */
+diff --new-file -c openssh-6.2p2_/nersc.c openssh-6.2p2/nersc.c
+*** openssh-6.2p2_/nersc.c	1969-12-31 18:00:00.000000000 -0600
+--- openssh-6.2p2/nersc.c	2013-07-23 14:12:37.000000000 -0500
+***************
+*** 0 ****
+--- 1,576 ----
++ /*
++  * Author: Scott Campbell, Tom Davis
++  * Set of functions called by the command instrumentation and logging
++  *
++  *  notes as follows:
++  *     hostname and source port of the syslog listener are hardcoded into
++  *      the code to prevent issues with configuration - both intentional and otherwise.
++  * 
++  * ------------------------------------------------------------------------------
++  * Instrumented Open SSHD, Copyright (c) *2013*, The
++  * Regents of the University of California, through Lawrence Berkeley National
++  * Laboratory (subject to receipt of any required approvals from the U.S.
++  * Dept. of Energy).  All rights reserved.
++  * 
++  * If you have questions about your rights to use or distribute this software,
++  * please contact Berkeley Lab's Technology Transfer Department at  TTD@lbl.gov
++  * .
++  * 
++  * NOTICE.  This software is owned by the U.S. Department of Energy.  As such,
++  * the U.S. Government has been granted for itself and others acting on its
++  * behalf a paid-up, nonexclusive, irrevocable, worldwide license in the
++  * Software to reproduce, prepare derivative works, and perform publicly and
++  * display publicly.  Beginning five (5) years after the date permission to
++  * assert copyright is obtained from the U.S.
++  * Department of Energy, and subject to any subsequent five (5) year renewals,
++  * the U.S. Government is granted for itself and others acting on its behalf a
++  * paid-up, nonexclusive, irrevocable, worldwide license in the Software to
++  * reproduce, prepare derivative works, distribute copies to the public,
++  * perform publicly and display publicly, and to permit others to do so.
++  * 
++  * *** License agreement ***
++  * 
++  * " Instrumented Open SSHD, Copyright (c) 2013, The Regents of the
++  * University of California, through Lawrence Berkeley National Laboratory
++  * (subject to receipt of any required approvals from the U.S. Dept. of
++  * Energy).  This software was developed under funding from the DOE Office of
++  * Advanced Scientific Computing Research* *and is associated with the
++  * Berkeley Lab OASCR project. All rights reserved."
++  * 
++  * Redistribution and use in source and binary forms, with or without
++  * modification, are permitted provided that the following conditions are met:
++  * 
++  * (1) Redistributions of source code must retain the above copyright notice,
++  * this list of conditions and the following disclaimer.
++  * 
++  * (2) Redistributions in binary form must reproduce the above copyright
++  * notice, this list of conditions and the following disclaimer in the
++  * documentation and/or other materials provided with the distribution.
++  * 
++  * (3) Neither the name of the University of California, Lawrence Berkeley
++  * National Laboratory, U.S. Dept. of Energy nor the names of its contributors
++  * may be used to endorse or promote products derived from this software
++  * without specific prior written permission.
++  * 
++  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
++  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++  * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
++  * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++  * POSSIBILITY OF SUCH DAMAGE.
++  * 
++  * *You are under no obligation whatsoever to provide any bug fixes, patches,
++  * or upgrades to the features, functionality or performance of the source
++  * code ("Enhancements") to anyone; however, if you choose to make your
++  * Enhancements available either publicly, or directly to Lawrence Berkeley
++  * National Laboratory, without imposing a separate written license agreement
++  * for such Enhancements, then you hereby grant the following license: a
++  *  non-exclusive, royalty-free perpetual license to install, use, modify,
++  * prepare derivative works, incorporate into other computer software,
++  * distribute, and sublicense such enhancements or derivative works thereof,
++  * in binary and source code form.*
++  * 
++  * ------------------------------------------------------------------------------
++  * Additional URL encoding code taken from stringcoders-v3.10.3 source.  Thanks!
++  * ------------------------------------------------------------------------------
++  * http://code.google.com/p/stringencoders/
++  *
++  * Copyright &copy; 2006,2007  Nick Galbreath -- nickg [at] modp [dot] com
++  * All rights reserved.
++  *
++  * Redistribution and use in source and binary forms, with or without
++  * modification, are permitted provided that the following conditions are
++  * met:
++  *
++  *   Redistributions of source code must retain the above copyright
++  *   notice, this list of conditions and the following disclaimer.
++  *
++  *   Redistributions in binary form must reproduce the above copyright
++  *   notice, this list of conditions and the following disclaimer in the
++  *   documentation and/or other materials provided with the distribution.
++  *
++  *   Neither the name of the modp.com nor the names of its
++  *   contributors may be used to endorse or promote products derived from
++  *   this software without specific prior written permission.
++  *
++  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++  * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
++  * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
++  * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
++  * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++  * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++  *
++  * This is the standard "new" BSD license:
++  * http://www.opensource.org/licenses/bsd-license.php
++  */
++ 
++ 
++ #include "includes.h"
++ #ifdef NERSC_MOD
++ 
++ #include <sys/types.h>
++ #include <sys/socket.h>
++ #include <sys/ioctl.h>
++ #include <netdb.h>
++ #include <stdarg.h>
++ #include <stdio.h>
++ #include <stdlib.h>
++ #include <string.h>
++ #include <unistd.h>
++ #include <fcntl.h>
++ #include <errno.h>
++ #include <net/if.h>
++ #include <netinet/in.h>
++ #include <arpa/inet.h>
++ #include <syslog.h>
++ 
++ #include "openbsd-compat/sys-queue.h"
++ #include "channels.h"
++ #include "log.h"
++ #include "misc.h"
++ #include "xmalloc.h"
++ #include "version.h"
++ #include "nersc.h"
++ 
++ /* this is for the stringencoders data */
++ #include "modp_burl.h"
++ #include "modp_burl_data.h"
++ 
++ int client_session_id;
++ int sis_socket = -1;		  /* socket test varible */
++ int sis_connect = -1;		  /* connect test variable */
++ int stun_conn_error = 0;	  /* track the number of connection errors to the stunnel */
++ int stun_write_error = 0;	  /* track the number of write errors to the stunnel */
++ 
++ char n_ntop[NI_MAXHOST] = "X";
++ char n_port[NI_MAXHOST] = "X";
++ 
++ extern char *__progname;
++ 
++ static char server_id[128] = "X"; /* 
++ 				   * This is a unique value composed of: 
++ 				   *  <pid><list address><list port>
++ 				   *  used for the lifetime of the process. 
++ 				   *  128 == max reasonable size expected 
++ 				   */
++ #define NERSCMSGBUF 4096
++ #define STUN_ERROR_MOD 10	  /* 
++ 				   * Filter the number of errors down by this factor 
++ 				   *  so that on a busy sustem the local syslog is not 
++ 				   *  flooded with anoying and redundant messages 
++ 				   */
++ 
++ char interface_list[256] = "X";   /* 
++ 				   * Contains space delimited list of system interfaces.
++ 				   *   at times we may need more than the host name to 
++ 				   *   determine the system in question.  Fill up and ship
++ 				   *   back to the bro instance to sort out 
++ 				   */
++ 
++ void l_syslog(const char *fmt,...)
++ {
++ 	/* 
++ 	 * Function filtering accidental printing of log messages to 
++ 	 *   stderr/stdout when logging messages.
++ 	 *
++ 	 * NOTE: for standalong binaries like ssh, some of this code will get
++ 	 *   called since there are common shared objects like channels.o which
++ 	 *   trigger annoying errors to stderr otherwise.   
++ 	 */
++ 
++ 	if ( ! log_is_on_stderr() ) {
++ 		va_list args;
++ 
++ 		va_start(args, fmt);
++ 		do_log(SYSLOG_LEVEL_INFO, fmt, args);
++ 		va_end(args);
++ 	}
++ }
++ 
++ 
++ int get_client_session_id()
++ 	{
++ 	return client_session_id;
++ 	}
++ 
++ void set_server_id(int parent_pid, char* ntop, int port)
++ 	{
++ 	/* 
++ 	 * This is called to assert the server id from server_listen() 
++ 	 *   in sshd.c .
++ 	 */
++ 	if ( server_id[0] == 'X' ) {
++ 		char hn[64];
++ 		long hid;
++ 
++ 		if ( gethostname((char*)hn, 64) == -1 )
++ 			strncpy(hn, "unknown-hostname", sizeof(hn));
++ 
++ 		hid = gethostid();
++ 		snprintf(server_id, 64,"%ld:%s:%i", hid, hn, port);
++ 		}
++ 	}	
++ 
++ static char* get_server_id()
++ 	{
++ 	/* 
++ 	 * If this is the first reference to this variable, it may be blank and 
++ 	 *   we can try filing it in via the values set up during the sshd run.
++ 	 */
++ 	char *cp = NULL;
++ 	char *p = NULL;
++ 	long hid;
++ 
++ 	if( server_id[0] == 'X' ) {
++ 
++ 		hid = gethostid();
++ 		/* 
++ 		 * When invoking subsystems, we may have a situation where the 
++ 		 *   server id will be incomplete.  run an additional test here 
++ 		 *   to make sure that n_top and n_port have been filled.  if not,
++ 		 *   make a sanity guess based on: 
++ 		 *     SSH_CONNECTION=127.0.0.1 33602 127.0.0.1 22
++ 		 */
++ 		if ( n_port[0] == 'X' ) {
++ 
++ 			if ((cp = getenv("SSH_CONNECTION")) != NULL) {
++ 
++ 				p = strtok(cp," ");			/* src IP */
++ 				p = strtok(NULL, " ");			/* src port */
++ 
++ 				if ( (p = strtok(NULL, " ")) != NULL)	/* dst IP */
++ 					strncpy(n_ntop,p,NI_MAXHOST-1);
++ 
++ 				if ( (p = strtok(NULL, " ")) != NULL)	/* dst port */
++ 					strncpy(n_port,p,NI_MAXHOST-1);
++ 
++ 				bzero(cp, strlen(cp));
++ 			}
++ 			else {
++ 				/* 
++ 				 * Have not been able to extract SSH_CONNECTION from
++ 				 *   the running environment.  WTF?
++ 				 */
++ 				strncpy(n_port, "unknown-port", strlen(n_port));
++ 				strncpy(n_ntop, "unknown-ip", strlen(n_ntop));
++ 			}
++ 		}
++ 
++ 		char hn[64];
++ 		gethostname((char*)hn, 64);
++ 
++ 		snprintf(server_id, 64,"%ld:%s:%s", hid, hn, n_port);
++ 
++ 		return (server_id);
++ 		}
++ 	else
++ 		return (server_id);
++ 	}
++ 
++ int set_interface_list()
++ {
++ 	int iSocket;
++ 	struct if_nameindex *pIndex, *pIndex2;
++ 
++ 	if ( strlen(interface_list) > 1 )
++ 		return 0;
++    
++ 	if ((iSocket = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
++ 
++ 		perror("socket");
++ 		bzero(interface_list, sizeof(interface_list));
++ 		interface_list[0] = 'S';
++ 		return -1;
++ 	}
++ 
++ 	bzero(interface_list, sizeof(interface_list));
++ 
++ 	/* 
++ 	 * if_nameindex() returns an array of if_nameindex structures.  
++ 	 *
++ 	 * if_nametoindex is also defined in <net/if.h>, and is as follows:
++ 	 *
++ 	 *	struct if_nameindex {
++ 	 *		unsigned int   if_index;   1, 2, ... 
++ 	 *		char          *if_name;    null terminated name: "le0", ...
++ 	 * 	}; 
++ 	 */
++ 	pIndex = pIndex2 = if_nameindex();
++ 
++ 	/* for an error state, pIndex will be NULL */
++ 	while ((pIndex != NULL) && (pIndex->if_name != NULL)) {
++ 
++ 		struct ifreq req;
++ 
++ 		strncpy(req.ifr_name, pIndex->if_name, IFNAMSIZ);
++ 
++ 		if (ioctl(iSocket, SIOCGIFADDR, &req) < 0) {
++ 
++ 			if (errno == EADDRNOTAVAIL) {
++ 				pIndex++;
++ 				continue;
++ 			}
++ 
++ 			perror("ioctl");
++ 			bzero(interface_list, sizeof(interface_list));
++ 			interface_list[0] = 'I';
++          		close(iSocket);
++          
++ 			return -1;
++ 		}
++ 
++ 		/* add a delimiter */
++ 		if ( pIndex > pIndex2 )
++ 			strncat(interface_list, "_", 2);
++ 
++ 		size_t nl = strlen(inet_ntoa(((struct sockaddr_in*)&req.ifr_addr)->sin_addr));
++ 
++ 		if (  nl + strlen(interface_list) + 2 < sizeof(interface_list) ) {
++ 
++ 			strncat( interface_list, 
++ 				inet_ntoa(((struct sockaddr_in*)&req.ifr_addr)->sin_addr), 
++ 				sizeof(interface_list) - nl -1);
++ 		}
++       
++ 	pIndex++;
++ 	
++ 	}
++ 
++ 	if ( pIndex2 != NULL )
++ 		if_freenameindex(pIndex2);
++ 
++ 	close(iSocket);
++ 
++ 	return 0;
++ }
++ 
++ static int sis_opentcp(char *hostname, int portnum)
++ {
++ 	struct sockaddr_in sa = { 0 };
++ 	struct hostent *hp = NULL;
++ 	int s, valopt;
++ 	fd_set myset;
++ 	struct timeval tv;
++ 	socklen_t lon;
++ 
++ 	s = -1;
++ 	sis_connect = -1;
++ 
++ 	hp = gethostbyname(hostname);
++ 	
++ 	if (hp == NULL) {
++ 		hp = gethostbyaddr(hostname, strlen(hostname), AF_INET);
++ 		if (hp == NULL) {
++ 			l_syslog("error resolving stunnel server address, exiting open");
++ 			return(-1);
++ 		}
++ 	}
++ 
++ 	sa.sin_family = AF_INET;
++ 	sa.sin_port = htons(portnum);
++ 	(void) memcpy(&sa.sin_addr, hp->h_addr, hp->h_length);
++ 
++ 	if ((s=socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0) {
++ 
++ 		l_syslog("error opening connection to stunnel listener, exiting open");
++ 		return (-1);
++ 	}
++ 	
++ 	/* now make the socket non-blocking */
++ 	if ( fcntl(s,F_SETFL,FNDELAY) == -1) {
++ 		l_syslog("Failure setting socket to no-blocking");
++ 	}
++ 
++ 	sis_connect = connect(s, (struct sockaddr *) & sa, sizeof(sa));
++ 
++ 	if ( sis_connect < 0 ) {
++ 
++ 		/* 
++ 		 * We might be waiting for the connection to complete -
++ 		 *   quick check for that condition.
++ 		 */
++ 		if (errno == EINPROGRESS) {
++ 			/* sit for 2 seconds */
++ 			tv.tv_sec = 2;
++ 			tv.tv_usec = 0;
++ 			FD_ZERO(&myset);
++ 			FD_SET(s, &myset);
++ 
++ 			if (select(s+1, NULL, &myset, NULL, &tv) > 0) {
++ 				lon = sizeof(int);
++ 				getsockopt(s, SOL_SOCKET, SO_ERROR, (void *)(&valopt), &lon);
++ 
++ 				if (valopt) {
++ 					if ( ( stun_conn_error % STUN_ERROR_MOD ) == 0 ) {
++ 						l_syslog("connection to stunnel rejected/timeout, exiting open, error = %d, %s" , 
++ 							valopt, strerror(valopt));
++ 
++ 						stun_conn_error++;
++ 						close(s);
++ 						sis_connect = -1;
++ 						return(-1);
++ 					}
++ 				}
++ 				else {
++ 					/* sitting around has worked, mark connect as successful */
++ 					sis_connect = 1;
++ 				}
++ 			}
++ 		}
++ 		else {
++ 			/* some simple sanity filtering for connect errors */
++ 			if ( ( stun_conn_error % STUN_ERROR_MOD ) == 0 ) {
++ 				l_syslog("connection to stunnel rejected, exiting open");
++ 
++ 				stun_conn_error++;	
++ 				close(s);
++ 				return(-1);
++ 			}
++ 		}
++ 	}
++ 
++ 	return(s);
++ }
++ 
++ static int sis_write(char *buffer)
++ {
++ 	int err = 0;
++ 	size_t sent = 0;
++ 
++ 	if ( sis_connect != -1 && sis_socket != -1)
++ 		sent = send(sis_socket, buffer, strlen(buffer), 0);
++ 
++ 	/* this may be a little heavy handed ... */
++ 	if (sent != strlen(buffer) || sis_socket == -1 || sis_connect == -1) {
++ 
++ #ifndef STUNNEL_PORT
++ 	#define	STUNNEL_PORT 799
++ #endif
++ 
++ #ifndef STUNNEL_HOST
++ 	#define STUNNEL_HOST "localhost"
++ #endif
++ 		/* 
++ 		 * Close the fd since writes are failing, but only
++ 		 *   if there is an error on it already since that would
++ 		 *   close a socket that was never opened ...
++ 		 */
++ 		if ( stun_write_error > 0 ) {
++ 
++ 			close(sis_socket);
++ 			sis_socket = -1;
++ 			sis_connect = -1;
++ 
++ 			/* 
++ 			 * Some simple sanity filtering for connect errors 
++ 			 *   this will flag every 10th error starting after #1
++ 			 */
++ 			if ( ( stun_write_error % STUN_ERROR_MOD ) == 1 ) {
++ 				l_syslog("write to stunnel failed, reopening connection");
++ 			}
++ 
++ 		}
++ 
++ 		stun_write_error++;
++ 		sis_socket = sis_opentcp(STUNNEL_HOST, STUNNEL_PORT);
++ 
++ 		if ( sis_socket == -1 || sis_connect == -1 ) {
++ 			err = -1;
++ 		}
++ 		else {
++ 			sent = send(sis_socket, buffer, strlen(buffer), 0);
++ 
++ 			err=1; 
++ 		}
++ 
++ 	}
++ 	
++ 	return(err);
++ }
++ 
++ 
++ /*
++  * Main auditing function called by other code
++  * s_audit( <event_name>, <fmt>, <args> );
++  */
++ void s_audit(const char *_event, const char *fmt, ...)
++ {
++ 	va_list args;
++ 	char msgbuf[NERSCMSGBUF] = "";
++ 	char fmtbuf[NERSCMSGBUF] = "";
++ 
++ 	struct timeval tv;
++ 	gettimeofday(&tv, NULL);
++ 	
++ 	char* t1buf = encode_string( get_server_id(), strlen(get_server_id()) );
++ 	/* get version string */
++ 
++ 	/* 
++ 	 * If --with-nerscmod has not been set in confgure there is no access to
++ 	 *   SSH_AUDITING so we set a token value for the define.
++ 	 */
++ #ifndef NERSC_MOD
++ 	#define SSH_AUDITING	"XXX"
++ #endif
++ 	char* t2buf = encode_string( SSH_AUDITING, strlen(SSH_AUDITING) );
++ 	/* get interface list */
++ 	set_interface_list();
++ 	char* t3buf = encode_string( interface_list, strlen(interface_list) );
++ 
++ 	/* fmt defines how data provided by args should be formatted */	
++ 	va_start(args, fmt);
++ 	/* copy the data into msgbuf */
++ 	vsnprintf(msgbuf, sizeof(msgbuf), fmt, args);
++ 	va_end(args);
++ 
++ 	/* copy event and system data in front of the argument data */
++ 	snprintf(fmtbuf, sizeof(fmtbuf), "%s time=%ld.%ld uristring=%s uristring=%s %s\n", _event, tv.tv_sec, (long int)tv.tv_usec, t2buf, t1buf, msgbuf);
++ 
++ 	/*write(STDERR_FILENO, fmtbuf, strlen(fmtbuf));  */
++ 	/*syslog(LOG_NOTICE, fmtbuf); */
++ 
++ 	/* 
++ 	 * If the socket open fails, sis_write() will return a -1.  for the time
++ 	 *   being we will just let this ride since we will be reporting
++ 	 *   write failures anyway.
++ 	 */
++ 	sis_write(fmtbuf);
++ 
++ 	free(t1buf);
++ 	free(t2buf);
++ 	free(t3buf);
++ }
++ 
++ 
++ char* encode_string(const char* src, const int len)
++ {
++ 	/* take a string and return a pointer to the URI encoded version */
++ 	int new_len = modp_burl_encode_len(len);
++ 
++ 	char *url_enc_string;
++ 
++ 	url_enc_string = xmalloc(new_len);
++ 
++ 	if ( url_enc_string == NULL ) 
++ 		return (char*)src;
++ 	else
++ 		/* 
++ 		 * We do not test the return here since it 
++ 		 *   is done via the call itself.
++ 		 */	
++ 		modp_burl_encode(url_enc_string, src, len);
++ 	
++ 	return url_enc_string;
++ }
++ 
++ #endif /* NERSC_MOD */
+diff --new-file -c openssh-6.2p2_/nersc.h openssh-6.2p2/nersc.h
+*** openssh-6.2p2_/nersc.h	1969-12-31 18:00:00.000000000 -0600
+--- openssh-6.2p2/nersc.h	2013-07-23 13:20:39.000000000 -0500
+***************
+*** 0 ****
+--- 1,15 ----
++ /*
++  * Author: Scott Campbell
++  * header file
++  *
++  * see nersc.c for complete copyright information
++  *
++  */
++ 
++ int get_client_session_id();
++ void set_server_id(int,char*,int);
++ void s_audit(const char *, const char *, ...);
++ char* encode_string(const char *, const int len);
++ int set_interface_list();
++ 
++ 
+Common subdirectories: openssh-6.2p2_/openbsd-compat and openssh-6.2p2/openbsd-compat
+Common subdirectories: openssh-6.2p2_/regress and openssh-6.2p2/regress
+Common subdirectories: openssh-6.2p2_/scard and openssh-6.2p2/scard
+diff --new-file -c openssh-6.2p2_/serverloop.c openssh-6.2p2/serverloop.c
+*** openssh-6.2p2_/serverloop.c	2012-12-06 20:07:47.000000000 -0600
+--- openssh-6.2p2/serverloop.c	2013-07-23 13:20:39.000000000 -0500
+***************
+*** 80,85 ****
+--- 80,90 ----
+  #include "misc.h"
+  #include "roaming.h"
+  
++ #ifdef NERSC_MOD
++ #include "nersc.h"
++ extern int client_session_id;
++ #endif
++ 
+  extern ServerOptions options;
+  
+  /* XXX */
+***************
+*** 570,575 ****
+--- 575,584 ----
+  
+  	debug("Entering interactive session.");
+  
++ #ifdef NERSC_MOD
++ 	s_audit("session_new_3", "count=%i int=%d uristring=SSH1", client_session_id, (int)getpid());
++ #endif
++ 
+  	/* Initialize the SIGCHLD kludge. */
+  	child_terminated = 0;
+  	mysignal(SIGCHLD, sigchld_handler);
+***************
+*** 847,852 ****
+--- 856,865 ----
+  
+  	server_init_dispatch();
+  
++ #ifdef NERSC_MOD
++ 	s_audit("session_new_3", "count=%i int=%d uristring=SSH2", client_session_id, (int)getpid());
++ #endif
++ 
+  	for (;;) {
+  		process_buffered_input_packets();
+  
+***************
+*** 968,973 ****
+--- 981,998 ----
+  	    !no_port_forwarding_flag) {
+  		c = channel_connect_to(target, target_port,
+  		    "direct-tcpip", "direct-tcpip");
++ 
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(originator, strlen(originator));
++ 	char* t2buf = encode_string(target, strlen(target));
++ 	
++ 	s_audit("session_request_direct_tcpip_3", "count=%i count=%i uristring=%s port=%d/tcp string=%s port=%d/tcp count=%i",
++ 		client_session_id, c->self, t1buf, originator_port, t2buf, target_port);
++ 		
++ 	free(t1buf);
++ 	free(t2buf);
++ #endif
++ 
+  	} else {
+  		logit("refused local port forward: "
+  		    "originator %s port %d, target %s port %d",
+***************
+*** 1011,1016 ****
+--- 1036,1047 ----
+  	sock = tun_open(tun, mode);
+  	if (sock < 0)
+  		goto done;
++ 
++ #ifdef NERSC_MOD
++ 	s_audit("session_tun_init_3", "count=%i count=%i count=%i", 
++ 		client_session_id, c->self, mode);
++ #endif
++ 
+  	c = channel_new("tun", SSH_CHANNEL_OPEN, sock, sock, -1,
+  	    CHAN_TCP_WINDOW_DEFAULT, CHAN_TCP_PACKET_DEFAULT, 0, "tun", 1);
+  	c->datagram = 1;
+***************
+*** 1092,1097 ****
+--- 1123,1137 ----
+  			packet_put_int(c->local_window);
+  			packet_put_int(c->local_maxpacket);
+  			packet_send();
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(ctype, strlen(ctype));
++ 	
++ 	s_audit("session_input_channel_open_3", "count=%i count=%i uristring=%s int=%d int=%i int=%d",
++ 		client_session_id, type, t1buf, rchan, rwindow, rmaxpack);
++ 		
++ 	free(t1buf);
++ #endif
++ 
+  		}
+  	} else {
+  		debug("server_input_channel_open: failure %s", ctype);
+diff --new-file -c openssh-6.2p2_/session.c openssh-6.2p2/session.c
+*** openssh-6.2p2_/session.c	2013-03-14 19:22:37.000000000 -0500
+--- openssh-6.2p2/session.c	2013-07-23 14:12:37.000000000 -0500
+***************
+*** 92,97 ****
+--- 92,103 ----
+  #include "monitor_wrap.h"
+  #include "sftp.h"
+  
++ #ifdef NERSC_MOD
++ #include "nersc.h"
++ #include <ctype.h>
++ extern int client_session_id;
++ #endif
++ 
+  #if defined(KRB5) && defined(USE_AFS)
+  #include <kafs.h>
+  #endif
+***************
+*** 325,339 ****
+--- 331,354 ----
+  		/* Process the packet. */
+  		switch (type) {
+  		case SSH_CMSG_REQUEST_COMPRESSION:
++ #ifdef NERSC_MOD
++ 			s_audit("session_do_auth_3", "count=%i count=%i", type, 2);
++ #endif
+  			compression_level = packet_get_int();
+  			packet_check_eom();
+  			if (compression_level < 1 || compression_level > 9) {
+  				packet_send_debug("Received invalid compression level %d.",
+  				    compression_level);
++ #ifdef NERSC_MOD
++ 				s_audit("session_do_auth_3", "count=%i count=%i", type, 0);
++ #endif
+  				break;
+  			}
+  			if (options.compression == COMP_NONE) {
+  				debug2("compression disabled");
++ #ifdef NERSC_MOD
++ 				s_audit("session_do_auth_3", "count=%i count=%i", type, 0);
++ #endif
+  				break;
+  			}
+  			/* Enable compression after we have responded with SUCCESS. */
+***************
+*** 342,351 ****
+--- 357,376 ----
+  			break;
+  
+  		case SSH_CMSG_REQUEST_PTY:
++ #ifdef NERSC_MOD
++ 			s_audit("session_do_auth_3", "count=%i count=%i", type, 2);
++ #endif
++ 
+  			success = session_pty_req(s);
++ #ifdef NERSC_MOD
++ 			s_audit("session_do_auth_3", "count=%i count=%i", type, success);
++ #endif
+  			break;
+  
+  		case SSH_CMSG_X11_REQUEST_FORWARDING:
++ #ifdef NERSC_MOD
++ 			s_audit("session_do_auth_3", "count=%i count=%i", type, 2);
++ #endif
+  			s->auth_proto = packet_get_string(&proto_len);
+  			s->auth_data = packet_get_string(&data_len);
+  
+***************
+*** 369,422 ****
+--- 394,501 ----
+  				s->auth_proto = NULL;
+  				s->auth_data = NULL;
+  			}
++ #ifdef NERSC_MOD
++ 			s_audit("session_do_auth_3", "count=%i count=%i", type, success);
++ #endif
+  			break;
+  
+  		case SSH_CMSG_AGENT_REQUEST_FORWARDING:
++ #ifdef NERSC_MOD
++ 			s_audit("session_do_auth_3", "count=%i count=%i", type, 2);
++ #endif
+  			if (!options.allow_agent_forwarding ||
+  			    no_agent_forwarding_flag || compat13) {
+  				debug("Authentication agent forwarding not permitted for this authentication.");
++ #ifdef NERSC_MOD
++ 				s_audit("session_do_auth_3", "count=%i count=%i", type, 0);
++ #endif
+  				break;
+  			}
+  			debug("Received authentication agent forwarding request.");
+  			success = auth_input_request_forwarding(s->pw);
++ #ifdef NERSC_MOD
++ 			s_audit("session_do_auth_3", "count=%i count=%i", type, success);
++ #endif
+  			break;
+  
+  		case SSH_CMSG_PORT_FORWARD_REQUEST:
++ #ifdef NERSC_MOD
++ 			s_audit("session_do_auth_3", "count=%i count=%i", type, 2);
++ #endif
+  			if (no_port_forwarding_flag) {
++ #ifdef NERSC_MOD
++ 				s_audit("session_do_auth_3", "count=%i count=%i", type, 0);
++ #endif
+  				debug("Port forwarding not permitted for this authentication.");
+  				break;
+  			}
+  			if (!(options.allow_tcp_forwarding & FORWARD_REMOTE)) {
+  				debug("Port forwarding not permitted.");
++ #ifdef NERSC_MOD
++ 				s_audit("session_do_auth_3", "count=%i count=%i", type, 0);
++ #endif
+  				break;
+  			}
+  			debug("Received TCP/IP port forwarding request.");
+  			if (channel_input_port_forward_request(s->pw->pw_uid == 0,
+  			    options.gateway_ports) < 0) {
+  				debug("Port forwarding failed.");
++ #ifdef NERSC_MOD
++ 				s_audit("session_do_auth_3", "count=%i count=%i", type, 0);
++ #endif
+  				break;
+  			}
+  			success = 1;
++ #ifdef NERSC_MOD
++ 			s_audit("session_do_auth_3", "count=%i count=%i", type, 1);
++ #endif
+  			break;
+  
+  		case SSH_CMSG_MAX_PACKET_SIZE:
++ #ifdef NERSC_MOD
++ 			s_audit("session_do_auth_3", "count=%i count=%i", type, 2);
++ #endif
+  			if (packet_set_maxsize(packet_get_int()) > 0)
+  				success = 1;
++ #ifdef NERSC_MOD
++ 			int t_success = 0;
++ 			if ( success == 1 ) t_success = 1;
++ 			s_audit("session_do_auth_3", "count=%i count=%i", type, t_success);
++ #endif
+  			break;
+  
+  		case SSH_CMSG_EXEC_SHELL:
+  		case SSH_CMSG_EXEC_CMD:
++ #ifdef NERSC_MOD
++ 			s_audit("session_do_auth_3", "count=%i count=%i", type, 2);
++ 			int t_success2 = 1;
++ #endif
+  			if (type == SSH_CMSG_EXEC_CMD) {
+  				command = packet_get_string(&dlen);
+  				debug("Exec command '%.500s'", command);
+  				if (do_exec(s, command) != 0)
++ #ifdef NERSC_MOD
++ 					{
++ 					t_success2 = 0;
++ 					packet_disconnect("command execution failed");
++ 					}
++ #else
+  					packet_disconnect(
+  					    "command execution failed");
++ #endif
++ 
+  				xfree(command);
+  			} else {
+  				if (do_exec(s, NULL) != 0)
++ #ifdef NERSC_MOD
++ 					{
++ 					t_success2 = 0;
++ 					packet_disconnect("command execution failed");
++ 					}
++ #else
+  					packet_disconnect(
+  					    "shell execution failed");
++ #endif
+  			}
+  			packet_check_eom();
+  			session_close(s);
+***************
+*** 498,503 ****
+--- 577,592 ----
+  	}
+  #endif
+  
++ #ifdef NERSC_MOD
++ 	if ( command != NULL ) 	{
++ 
++ 		char* t1buf = encode_string(command, strlen(command));
++ 		s_audit("session_remote_exec_no_pty_3", "count=%i count=%i count=%ld uristring=%s", 
++ 			client_session_id, s->chanid, (long)getppid(), t1buf);
++ 		free(t1buf);
++ 	}
++ #endif
++ 
+  	session_proctitle(s);
+  
+  	/* Fork the child. */
+***************
+*** 653,658 ****
+--- 742,756 ----
+  	ptyfd = s->ptyfd;
+  	ttyfd = s->ttyfd;
+  
++ #ifdef NERSC_MOD
++ 	if ( command != NULL ) 	{
++ 
++ 		char* t1buf = encode_string(command, strlen(command));
++ 		s_audit("session_remote_exec_pty_3", "count=%i count=%i count=%ld uristring=%s", 
++ 			client_session_id, s->chanid, (long)getppid(), t1buf);
++ 		free(t1buf);
++ 	}
++ #endif
+  	/*
+  	 * Create another descriptor of the pty master side for use as the
+  	 * standard input.  We could use the original descriptor, but this
+***************
+*** 795,800 ****
+--- 893,911 ----
+  {
+  	int ret;
+  
++ #ifdef NERSC_MOD
++ 	/* since the channel client/server code now takes the raw string
++ 	 *  data, we remove the 'clean_command' functionality 
++ 	 */
++ 	if ( command != NULL ) 	{
++ 
++ 		char* t1buf = encode_string(command, strlen(command));
++ 		s_audit("session_remote_do_exec_3", "count=%i count=%i count=%ld uristring=%s", 
++ 			client_session_id, s->chanid, (long)getppid(), t1buf);
++ 		free(t1buf);
++ 	}
++ #endif
++ 
+  	if (options.adm_forced_command) {
+  		original_command = command;
+  		command = options.adm_forced_command;
+***************
+*** 2265,2270 ****
+--- 2376,2392 ----
+  			success = session_env_req(s);
+  		}
+  	}
++ 
++ #ifdef NERSC_MOD
++ 	if ((strcmp(rtype,"window-change") != 0) && (strcmp(rtype,"env") != 0)) {
++ 
++ 		char* t1buf = encode_string(rtype, strlen(rtype));
++ 		s_audit("session_channel_request_3", "count=%i int=%d count=%d uristring=%s", 
++ 			client_session_id, getpid(), c->self, t1buf);
++ 		free(t1buf);
++ 	}
++ #endif
++ 
+  	if (strcmp(rtype, "window-change") == 0) {
+  		success = session_window_change_req(s);
+  	} else if (strcmp(rtype, "break") == 0) {
+***************
+*** 2446,2451 ****
+--- 2568,2577 ----
+  	/* disconnect channel */
+  	debug("session_exit_message: release channel %d", s->chanid);
+  
++ #ifdef NERSC_MOD
++ 	s_audit("session_exit_3", "count=%i count=%d count=%ld count=%d", client_session_id, s->chanid, (long)getppid(), status);
++ #endif
++ 
+  	/*
+  	 * Adjust cleanup callback attachment to send close messages when
+  	 * the channel gets EOF. The session will be then be closed
+***************
+*** 2659,2664 ****
+--- 2785,2798 ----
+  		    s->display_number, s->screen);
+  		s->display = xstrdup(display);
+  		s->auth_display = xstrdup(auth_display);
++ 
++ #ifdef NERSC_MOD
++ 		char* t1buf = encode_string(display, strlen(display));
++ 		s_audit("session_x11fwd_3", "count=%i count=%i uristring=%s", 
++ 			client_session_id, s->chanid, t1buf);
++ 		free(t1buf);
++ #endif
++ 
+  	} else {
+  #ifdef IPADDR_IN_DISPLAY
+  		struct hostent *he;
+diff --new-file -c openssh-6.2p2_/sftp-server.c openssh-6.2p2/sftp-server.c
+*** openssh-6.2p2_/sftp-server.c	2013-01-08 22:58:22.000000000 -0600
+--- openssh-6.2p2/sftp-server.c	2013-07-23 13:20:39.000000000 -0500
+***************
+*** 51,56 ****
+--- 51,61 ----
+  #include "sftp.h"
+  #include "sftp-common.h"
+  
++ #ifdef NERSC_MOD
++ #include "nersc.h"
++ extern int client_session_id;
++ #endif
++ 
+  /* helper */
+  #define get_int64()			buffer_get_int64(&iqueue);
+  #define get_int()			buffer_get_int(&iqueue);
+***************
+*** 512,517 ****
+--- 517,527 ----
+  	buffer_put_int64(&msg, st->f_namemax);
+  	send_msg(&msg);
+  	buffer_free(&msg);
++ 
++ #ifdef NERSC_MOD
++ 	s_audit("sftp_process_init_3", "count=%i int=%d int=%d", 
++ 		get_client_session_id(), (int)getppid(), version);
++ #endif
+  }
+  
+  /* parse incoming */
+***************
+*** 578,583 ****
+--- 588,601 ----
+  	}
+  	if (status != SSH2_FX_OK)
+  		send_status(id, status);
++ 
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string( name, strlen(name));
++ 	s_audit("sftp_process_open_3", "count=%i int=%d uristring=%s", 
++ 		get_client_session_id(), (int)getppid(), t1buf);
++ 	free(t1buf);
++ #endif
++ 
+  	xfree(name);
+  }
+  
+***************
+*** 594,599 ****
+--- 612,622 ----
+  	ret = handle_close(handle);
+  	status = (ret == -1) ? errno_to_portable(errno) : SSH2_FX_OK;
+  	send_status(id, status);
++ 
++ #ifdef NERSC_MOD
++ 	s_audit("sftp_process_close_3", "count=%i int=%d int=%d  int=%d", 
++ 		get_client_session_id(), (int)getppid(), id, handle);
++ #endif
+  }
+  
+  static void
+***************
+*** 705,710 ****
+--- 728,740 ----
+  	}
+  	if (status != SSH2_FX_OK)
+  		send_status(id, status);
++ 
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(name, strlen(name));
++ 	s_audit("sftp_process_do_stat_3", "count=%i int=%d uristring=%s",
++ 		get_client_session_id(), (int)getppid(), t1buf);
++ 	free(t1buf);
++ #endif
+  	xfree(name);
+  }
+  
+***************
+*** 745,750 ****
+--- 775,785 ----
+  	}
+  	if (status != SSH2_FX_OK)
+  		send_status(id, status);
++ 
++ #ifdef NERSC_MOD
++ 	s_audit("sftp_process_fstat_3", "count=%i int=%d int=%d", 
++ 		get_client_session_id(), (int)getppid(), handle);
++ #endif
+  }
+  
+  static struct timeval *
+***************
+*** 807,812 ****
+--- 842,854 ----
+  			status = errno_to_portable(errno);
+  	}
+  	send_status(id, status);
++ 
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string( name, strlen(name));
++ 	s_audit("sftp_process_setstat_3", "count=%i int=%d int=%d uristring=%s", 
++ 		get_client_session_id(), (int)getppid(), id, t1buf);
++ 	free(t1buf);
++ #endif
+  	xfree(name);
+  }
+  
+***************
+*** 875,880 ****
+--- 917,929 ----
+  		}
+  	}
+  	send_status(id, status);
++ 
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string( handle_to_name(handle), strlen(handle_to_name(handle)) );
++ 	s_audit("sftp_process_fsetstat_3", "count=%i int=%d int=%d uristring=%s", 
++ 		get_client_session_id(), (int)getppid(), id, t1buf);
++ 	free(t1buf);
++ #endif
+  }
+  
+  static void
+***************
+*** 904,909 ****
+--- 953,965 ----
+  	}
+  	if (status != SSH2_FX_OK)
+  		send_status(id, status);
++ 
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(path, strlen(path));
++ 	s_audit("sftp_process_opendir_3", "count=%i int=%d uristring=%s", 
++ 		get_client_session_id(), (int)getpid(), t1buf);
++ 	free(t1buf);
++ #endif
+  	xfree(path);
+  }
+  
+***************
+*** 959,964 ****
+--- 1015,1026 ----
+  		} else {
+  			send_status(id, SSH2_FX_EOF);
+  		}
++ 
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(path, strlen(path));
++ 	s_audit("sftp_process_readdir_3", "count=%i int=%d uristring=%s", 
++ 		get_client_session_id(), (int)getppid(), t1buf);
++ #endif
+  		xfree(stats);
+  	}
+  }
+***************
+*** 982,987 ****
+--- 1044,1055 ----
+  		status = (ret == -1) ? errno_to_portable(errno) : SSH2_FX_OK;
+  	}
+  	send_status(id, status);
++ 
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(name, strlen(name));
++ 	s_audit("sftp_process_remove_3", "count=%i int=%d uristring=%s", 
++ 		get_client_session_id(), (int)getppid(), t1buf);
++ #endif
+  	xfree(name);
+  }
+  
+***************
+*** 1007,1012 ****
+--- 1075,1087 ----
+  		status = (ret == -1) ? errno_to_portable(errno) : SSH2_FX_OK;
+  	}
+  	send_status(id, status);
++ 
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(name, strlen(name));
++ 	s_audit("sftp_process_mkdir_3", "count=%i int=%d uristring=%s", 
++ 		get_client_session_id(), (int)getpid(), t1buf);
++ 	free(t1buf);
++ #endif
+  	xfree(name);
+  }
+  
+***************
+*** 1028,1033 ****
+--- 1103,1115 ----
+  		status = (ret == -1) ? errno_to_portable(errno) : SSH2_FX_OK;
+  	}
+  	send_status(id, status);
++ 
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(name, strlen(name));
++ 	s_audit("sftp_process_rmdir_3", "count=%i int=%d uristring=%s", 
++ 		get_client_session_id(), (int)getppid(), t1buf);
++ 	free(t1buf);
++ #endif
+  	xfree(name);
+  }
+  
+***************
+*** 1054,1059 ****
+--- 1136,1148 ----
+  		s.name = s.long_name = resolvedname;
+  		send_names(id, 1, &s);
+  	}
++ 
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(path, strlen(path));
++ 	s_audit("sftp_process_realpath_3", "count=%i int=%d uristring=%s", 
++ 		get_client_session_id(), (int)getppid(), t1buf);
++ 	free(t1buf);
++ #endif
+  	xfree(path);
+  }
+  
+***************
+*** 1115,1120 ****
+--- 1204,1220 ----
+  			status = SSH2_FX_OK;
+  	}
+  	send_status(id, status);
++ 
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string( oldpath, strlen(oldpath));
++ 	char* t2buf = encode_string( newpath, strlen(newpath));
++ 	
++ 	s_audit("sftp_process_rename_3", "count=%i int=%d uristring=%s uristring=%s", 
++ 		get_client_session_id(), (int)getppid(), t1buf, t2buf);
++ 	
++ 	free(t1buf);
++ 	free(t2buf);
++ #endif
+  	xfree(oldpath);
+  	xfree(newpath);
+  }
+***************
+*** 1141,1146 ****
+--- 1241,1253 ----
+  		s.name = s.long_name = buf;
+  		send_names(id, 1, &s);
+  	}
++ 
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string( path, strlen(path));
++ 	s_audit("sftp_process_readlink_3", "count=%i int=%d uristring=%s", 
++ 		get_client_session_id(), (int)getppid(), t1buf);
++ 	free(t1buf);
++ #endif
+  	xfree(path);
+  }
+  
+***************
+*** 1164,1169 ****
+--- 1271,1288 ----
+  		status = (ret == -1) ? errno_to_portable(errno) : SSH2_FX_OK;
+  	}
+  	send_status(id, status);
++ 
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string( oldpath, strlen(oldpath));
++ 	char* t2buf = encode_string( newpath, strlen(newpath));
++ 	
++ 	s_audit("sftp_process_symlink_3", "count=%i int=%d uristring=%s uristring=%s", 
++ 		get_client_session_id(), (int)getppid(), t1buf, t2buf);
++ 	
++ 	free(t1buf);
++ 	free(t2buf);
++ #endif
++ 
+  	xfree(oldpath);
+  	xfree(newpath);
+  }
+***************
+*** 1356,1361 ****
+--- 1475,1484 ----
+  		break;
+  	default:
+  		error("Unknown message %d", type);
++ #ifdef NERSC_MOD
++ 		s_audit("sftp_process_unknown_3", "count=%i int=%d uristring=%d", 
++ 			get_client_session_id(), (int)getppid(), type);
++ #endif
+  		break;
+  	}
+  	/* discard the remaining bytes from the current packet */
+***************
+*** 1503,1508 ****
+--- 1626,1638 ----
+  		}
+  	}
+  
++ #ifdef NERSC_MOD
++ 	char* t1buf = encode_string(pw->pw_name, strlen(pw->pw_name));
++ 	s_audit("sftp_process_init_3", "count=%i int=%d uristring=%s addr=%s", 
++ 		get_client_session_id(), (int)getppid(), t1buf, client_addr);
++ 	free(t1buf);
++ #endif
++ 
+  	for (;;) {
+  		memset(rset, 0, set_size);
+  		memset(wset, 0, set_size);
+diff --new-file -c openssh-6.2p2_/sshd.c openssh-6.2p2/sshd.c
+*** openssh-6.2p2_/sshd.c	2013-02-11 18:04:48.000000000 -0600
+--- openssh-6.2p2/sshd.c	2013-07-23 13:20:39.000000000 -0500
+***************
+*** 138,143 ****
+--- 138,151 ----
+  #define REEXEC_CONFIG_PASS_FD		(STDERR_FILENO + 3)
+  #define REEXEC_MIN_FREE_FD		(STDERR_FILENO + 4)
+  
++ #ifdef NERSC_MOD
++ #include "nersc.h"
++ extern char n_ntop[NI_MAXHOST];
++ extern char n_port[NI_MAXHOST];
++ extern int client_session_id;
++ extern char interface_list[256];
++ #endif
++ 
+  extern char *__progname;
+  
+  /* Server configuration options. */
+***************
+*** 308,313 ****
+--- 316,335 ----
+  static void
+  sighup_restart(void)
+  {
++ 
++ #ifdef NERSC_MOD
++ 
++ 	struct addrinfo *ai;
++ 	char ntop[NI_MAXHOST], strport[NI_MAXSERV];
++ 
++ 	ai = options.listen_addrs;
++ 	
++ 	if ( getnameinfo(ai->ai_addr, ai->ai_addrlen,ntop, sizeof(ntop), strport, 
++ 			sizeof(strport),NI_NUMERICHOST|NI_NUMERICSERV) == 0) {
++ 		s_audit("sshd_restart_3", "addr=%s  port=%s/tcp", ntop, strport);
++ 	}
++ #endif
++ 
+  	logit("Received SIGHUP; restarting.");
+  	close_listen_socks();
+  	close_startup_pipes();
+***************
+*** 1093,1098 ****
+--- 1115,1129 ----
+  			fatal("listen on [%s]:%s: %.100s",
+  			    ntop, strport, strerror(errno));
+  		logit("Server listening on %s port %s.", ntop, strport);
++ 
++ #ifdef NERSC_MOD
++ 		/* set using (pid,address,port) */
++ 		set_server_id(getpid(),ntop,(int)options.ports[0]);
++ 
++ 		s_audit("sshd_start_3", "addr=%s port=%s/tcp", ntop, strport);
++ 		client_session_id=0;
++ 		set_interface_list();
++ #endif
+  	}
+  	freeaddrinfo(options.listen_addrs);
+  
+***************
+*** 1107,1112 ****
+--- 1138,1153 ----
+  static void
+  server_accept_loop(int *sock_in, int *sock_out, int *newsock, int *config_s)
+  {
++ 
++ #ifdef NERSC_MOD
++ 	struct addrinfo *ai;
++ 	char ntop[NI_MAXHOST], strport[NI_MAXSERV];
++ 
++ 	ai = options.listen_addrs;
++ 	struct timeval l_tv;
++ 	l_tv.tv_sec = 60;
++ 	l_tv.tv_usec = 0;
++ #endif
+  	fd_set *fdset;
+  	int i, j, ret, maxfd;
+  	int key_used = 0, startups = 0;
+***************
+*** 1145,1151 ****
+--- 1186,1212 ----
+  				FD_SET(startup_pipes[i], fdset);
+  
+  		/* Wait in select until there is a connection. */
++ 
++ #ifndef NERSC_MOD
+  		ret = select(maxfd+1, fdset, NULL, NULL, NULL);
++ #endif
++ 
++ #ifdef NERSC_MOD
++ 
++ 		/*  If a connection happens, we break from the loop with some ammount of
++ 		 *  data flagged in the return bits of select.  On error we see ret < 0. 
++ 		 *
++ 		 *  This needs to be tested wqith great enthusiasm since there might be corner
++ 		 *  cases of ret == 0 that I am not aware of
++ 		 */
++ 			l_tv.tv_sec = 60;
++ 			l_tv.tv_usec = 0;
++ 
++ 			s_audit("sshd_server_heartbeat_3", "count=%i", ret);
++ 
++ 			ret = select(maxfd+1, fdset, NULL, NULL, &l_tv);
++ #endif
++ 
+  		if (ret < 0 && errno != EINTR)
+  			error("select: %.100s", strerror(errno));
+  		if (received_sigterm) {
+***************
+*** 1153,1158 ****
+--- 1214,1226 ----
+  			    (int) received_sigterm);
+  			close_listen_socks();
+  			unlink(options.pid_file);
++ 
++ #ifdef NERSC_MOD
++ 			if (  getnameinfo(ai->ai_addr, ai->ai_addrlen,ntop, sizeof(ntop), strport, 
++ 					sizeof(strport),NI_NUMERICHOST|NI_NUMERICSERV) == 0) {
++ 				s_audit("sshd_exit_3", "addr=%s  port=%s/tcp", ntop, strport);
++ 			}
++ #endif
+  			exit(received_sigterm == SIGTERM ? 0 : 255);
+  		}
+  		if (key_used && key_do_regen) {
+***************
+*** 1596,1601 ****
+--- 1664,1676 ----
+  		exit(1);
+  	}
+  
++ #ifdef NERSC_MOD
++ 	/* here we are setting the values for the server id which lives in nersc.c */
++ 	getnameinfo(options.listen_addrs->ai_addr, options.listen_addrs->ai_addrlen,
++ 		n_ntop, sizeof(n_ntop), n_port,sizeof(n_port),
++ 		NI_NUMERICHOST|NI_NUMERICSERV); 
++ #endif
++ 
+  	debug("sshd version %s, %s", SSH_VERSION,
+  	    SSLeay_version(SSLEAY_VERSION));
+  
+***************
+*** 1951,1956 ****
+--- 2026,2048 ----
+  	 */
+  	remote_ip = get_remote_ipaddr();
+  
++ #ifdef NERSC_MOD
++ 
++ 	/* here we were setting client_session_id to the current pid
++ 	 *  but will now use a positive random number 
++ 	 *  to use as a tracking id for the remainder of the
++ 	 *  session.  c_s_i is defined in nersc.c
++ 	 */
++ 	client_session_id = abs(arc4random() );
++ 
++ 	char* t1buf = encode_string(interface_list, strlen(interface_list));
++ 
++ 	s_audit("sshd_connection_start_3", "count=%i uristring=%s addr=%s port=%i/tcp addr=%s port=%s/tcp count=%ld", 
++ 		client_session_id, interface_list, remote_ip, remote_port, n_ntop, n_port);
++ 
++ 	free(t1buf);
++ #endif
++ 
+  #ifdef SSH_AUDIT_EVENTS
+  	audit_connection_from(remote_ip, remote_port);
+  #endif
+***************
+*** 2078,2083 ****
+--- 2170,2179 ----
+  	/* Start session. */
+  	do_authenticated(authctxt);
+  
++ #ifdef NERSC_MOD
++ 	s_audit("sshd_connection_end_3", "count=%i addr=%s port=%i/tcp addr=%s port=%s/tcp",
++ 		 client_session_id, remote_ip, remote_port, n_ntop, n_port);
++ #endif
+  	/* The connection has been terminated. */
+  	packet_get_state(MODE_IN, NULL, NULL, NULL, &ibytes);
+  	packet_get_state(MODE_OUT, NULL, NULL, NULL, &obytes);
+diff --new-file -c openssh-6.2p2_/version.h openssh-6.2p2/version.h
+*** openssh-6.2p2_/version.h	2013-05-10 01:02:21.000000000 -0500
+--- openssh-6.2p2/version.h	2013-07-23 13:20:39.000000000 -0500
+***************
+*** 4,6 ****
+--- 4,12 ----
+  
+  #define SSH_PORTABLE	"p2"
+  #define SSH_RELEASE	SSH_VERSION SSH_PORTABLE
++ 
++ #ifdef NERSC_MOD
++ #undef SSH_RELEASE
++ #define SSH_AUDITING	"NMOD_3.12"
++ #define SSH_RELEASE	SSH_VERSION SSH_PORTABLE SSH_AUDITING
++ #endif /* NERSC_MOD */
