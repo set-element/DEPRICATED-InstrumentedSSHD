@@ -1,10 +1,15 @@
-Pleae note that this set of policy is currently in flux and may be 
-less predictable than the older code.  This is temporary and will 
-be corrected in the next few weeks.
+Oct 5, 2013
 
-As well be advised that the old < 3.0 line of bro policy will be depricated
-and will not be feature upgraded.  I will place the converted code into the 
-repo, but please consider updating your sshd versions.
+This set represents the current best efforts of bro policy for isshd analysis.  
 
-scott
-7/31/2012
+Some experimental aspects include sqlite plugin as well as the TSTREAM support.
+
+For the input framework, it is best to use the backwards compatible version - 
+sshd_input_stream-bc.bro as it is the most up to date.
+
+In addition, a new set of policy has been written which supports the use of 
+a cluster model for ssh analysis.  Thise scripts are identified with a
+*_cluster.bro .
+
+More documentation is forthcoming.
+
