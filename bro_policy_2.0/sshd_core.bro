@@ -38,18 +38,18 @@ export {
 		## current channel number
 		channel: 	count	&log &default = 0;
 		## current channel type	
-		#channel_t:	string	&log &default="D_UNKNOWN";
+		channel_t:	string	&log &default="D_UNKNOWN";
 		## server host name
 		host:		string	&log &default="HOST_UNKNOWN";
 		## event name
 		name:		string	&log &default="EVENT_UNKNOWN";
-		## event data
-		data:		string	&log &default="DATA_UNKNOWN";
 		## external host: host attached to forward
 		##  tunnel or proxy
 		ext_host:       string  &log &default="FWDHOST_UNKNOWN";
 		## external port: port attached to ext_host address
 		ext_port:       string  &log &default="FWDPORT_UNKNOWN";
+		## event data
+		data:		string	&log &default="DATA_UNKNOWN";
 	};
 
 	redef enum Notice::Type += {
@@ -486,8 +486,10 @@ function log_update_channel(CR: client_record, channel: count) : count
 		return ret;
 
 	t_Info$channel = channel;
+	t_Info$channel_t = CR$channel_type[channel];
 
 	s_logging[CR$log_id] = t_Info;
+
 	ret = 1;
 	return ret;	
 }
@@ -604,8 +606,9 @@ event auth_info_3(ts: time, version: string, sid: string, cid: count, authmsg: s
 
 	# this is for the generation of the USER_CORE::auth_transaction_token token
 	local t_key = get_info_key(CR);
+	local s_client_tag = fmt("#%s", CR$client_tag);
 	
-	event USER_CORE::auth_transaction(ts, CR$id, uid, print_sid(sid), "sshd", "authentication", authmsg, t_key);
+	event USER_CORE::auth_transaction(ts, s_client_tag, CR$id, uid, print_sid(sid), "isshd", "authentication", authmsg, meth, t_key);
 } 
 
 
@@ -797,12 +800,12 @@ event channel_pass_skip_3(ts: time, version: string, sid: string, cid: count, ch
 	local s_data = fmt("%s %s",  channel,print_channel(CR,channel));
 
 	print sshd_log, fmt("%.6f #%s %s-%s %s %s CHANNEL_PASS_SKIP %s", 
-		ts, CR$client_tag, channel,print_channel(CR,channel), print_sid(sid), cid, password_threshold);
+		ts, CR$client_tag, channel,print_channel(CR,channel), print_sid(sid), cid, CR$passwd_skip);
 
 	log_session_update_event(CR, ts, "CHANNEL_PASS_SKIP_3", s_data);
 
 	# update client record
-	s_records[sid]$c_records[cid]$passwd_skip = CR$passwd_skip;
+	#s_records[sid]$c_records[cid]$passwd_skip = CR$passwd_skip;
 }
 
 event channel_port_open_3(ts: time, version: string, sid: string, cid: count, channel: count, rtype: string, l_port: port, path: string, h_port: port, rem_host: string, rem_port: port)
