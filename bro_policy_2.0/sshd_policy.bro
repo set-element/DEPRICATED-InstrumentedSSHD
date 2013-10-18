@@ -101,6 +101,7 @@ export {
 		| /eggdrop/
 		| /(shell|xploit)_?code/
 		| /execshell/
+		| /unset[ \t]+(histfile|history|HISTFILE|HISTORY)/
 		| /cd[ \t]+\/dev\/[a-zA-Z]{3}/
 		| />\/etc\/passwd/
 		| /#define NOP.*0x/
@@ -440,10 +441,6 @@ event auth_key_fingerprint_3(ts: time, version: string, sid: string, cid: count,
 				CR$client_tag, sid, cid, CR$uid,
 				CR$id$orig_h, sid, CR$id$resp_h,
 				CR$id$resp_p, key_type, fingerprint)]);
-			
-		print SSHD_CORE::sshd_log, 
-			fmt("%.6f #%s - %s %s SSH_KNOWN_BAD_KEY %s type %s", 
-				ts, CR$client_tag, sid, cid, fingerprint, key_type);
 	}
 
 }
