@@ -69,8 +69,6 @@ export {
 	global s_index: count = 0;
 	
 	global c_record_clean: function(t: table[count] of int, idx:count) : interval;
-	# function for heartbeat utility
-	#global s_record_clean: function(t: table[string] of server_record, idx:string) : interval;
 
 	######################################################################################
 	#  data structs and tables
@@ -81,7 +79,7 @@ export {
 		auth_type: string &default = "UNKNOWN";	# value reset by login
 		auth_state: count &default=1;		# used to track logins
 		suspicous_count: count &default = 0;	# running total for suspicous commands
-		client_tag: count &default = 0;		# unique id
+		#client_tag: count &default = 0;		# unique id
 		start_time: time;			# 
 		passwd_skip: count &default = 0;	# how many times passwd entry skipped
 
@@ -120,8 +118,9 @@ export {
 	global test_cid: function(sid: string, cid: count) : client_record;
 	# function for auditing usage
 	global sshd_audit: function(call: string);
-	# function to look up cid
+	# function to register and look up cid
 	global lookup_cid: function(sid: string,ppid: int) : count;
+	global register_cid: function(sid: string, cid: count, ppid: int) : count;
 	global print_sid: function(sid: string) : string;
 	# print channel data
 	global print_channel: function(CR: client_record, channel: count) : string;
@@ -134,6 +133,13 @@ export {
 	global log_update_uid: function(CR: client_record, uid: string) : count;
 	global log_update_channel: function(CR: client_record, channel: count) : count;
 	global log_update_host: function(CR: client_record, host: string) : count;
+	global log_update_forward: function(CR: client_record, forward_host: string, h_port: port) : count;
+
+	# More utility functions, exported for the older policy cluster port
+	global remove_cid: function(sid:string, cid:count) : int;
+	global create_connection: function(s_ip: addr, s_port: port, r_ip: addr, r_port: port, ts: time): conn_id;
+	global save_cid: function(sid: string, cid: count, cr: client_record);
+	global get_info_key: function(CR: client_record) : string;
 
 	######################################################################################
 	#  configuration
@@ -246,8 +252,8 @@ function test_cid(sid: string, cid: count): client_record
 
 		# create a new rec and insert it into the table
 		# first increment the client session identifier
-		++s_index;
-		t_client_rec$client_tag = s_index;
+		#++s_index;
+		#t_client_rec$client_tag = s_index;
 
 		# this can be reset later, but fill in the time with a sane value
 		t_client_rec$start_time = network_time();
@@ -346,10 +352,13 @@ function c_record_clean(t: table[count] of int, idx:count) : interval
 function print_sid(sid: string) : string
 	{
 	# sid is of the form "hostname hostid port"
+	local ret_val = "00000";
 	local split_on_space = split(sid, /:/);
 
-	return split_on_space[2];
+	if ( |split_on_space| > 1 )
+		ret_val = split_on_space[2];
 
+	return ret_val;
 	}
 
 function print_channel(CR: client_record, channel: count) : string
@@ -367,7 +376,7 @@ function print_channel(CR: client_record, channel: count) : string
 	}
 
 function lookup_cid(sid: string, ppid: int) : count
-{
+	{
 	local ret: count = 0;
 	local split_cln = split(sid, /:/);
 	local t_sid = fmt("%s:%s", split_cln[2], split_cln[3]);
@@ -377,7 +386,22 @@ function lookup_cid(sid: string, ppid: int) : count
 		}
 
 	return ret;
-}
+	}
+
+function register_cid(sid: string, cid: count, ppid: int) : count
+	{
+	local ret: count = 0;
+	local split_cln = split(sid, /:/);
+	local t_sid = fmt("%s:%s", split_cln[2], split_cln[3]);
+
+	if ( [t_sid,ppid] !in cid_lookup ) {
+		cid_lookup[t_sid,ppid] = cid;
+		}
+	else
+		ret = 1;
+ 
+	return ret;
+	}
 
 function log_session_register(CR: client_record) : count
 {
@@ -608,9 +632,8 @@ event auth_info_3(ts: time, version: string, sid: string, cid: count, authmsg: s
 	# this is for the generation of the USER_CORE::auth_transaction_token token
 	#  which duplicates most of the info 
 	local t_key = get_info_key(CR);
-	local s_client_tag = fmt("#%s", CR$client_tag);
 	
-	event USER_CORE::auth_transaction(ts, s_client_tag, CR$id, uid, print_sid(sid), "isshd", "authentication", authmsg, meth, t_key);
+	event USER_CORE::auth_transaction(ts, CR$log_id, CR$id, uid, print_sid(sid), "isshd", "authentication", authmsg, meth, t_key);
 } 
 
 
@@ -752,8 +775,8 @@ event channel_pass_skip_3(ts: time, version: string, sid: string, cid: count, ch
 	if ( ++CR$passwd_skip == password_threshold ) {
 
 		NOTICE([$note=SSHD_PasswdThresh,
-			$msg=fmt("#%s %s-%s %s %s %s @ %s -> %s:%s",
-				CR$client_tag, channel, print_channel(CR,channel), sid, cid, CR$uid, 
+			$msg=fmt("SKIP: %s %s %s-%s %s %s %s @ %s -> %s:%s",
+				password_threshold, CR$log_id, channel, print_channel(CR,channel), sid, cid, CR$uid, 
 				CR$id$orig_h, CR$id$resp_h, CR$id$resp_p )]);
 	}
 	
@@ -762,7 +785,7 @@ event channel_pass_skip_3(ts: time, version: string, sid: string, cid: count, ch
 	log_session_update_event(CR, ts, "CHANNEL_PASS_SKIP_3", s_data);
 
 	# update client record
-	#s_records[sid]$c_records[cid]$passwd_skip = CR$passwd_skip;
+	s_records[sid]$c_records[cid]$passwd_skip = CR$passwd_skip;
 }
 
 event channel_port_open_3(ts: time, version: string, sid: string, cid: count, channel: count, rtype: string, l_port: port, path: string, h_port: port, rem_host: string, rem_port: port)
@@ -860,7 +883,7 @@ event channel_socks5_3(ts: time, version: string, sid: string, cid: count, chann
 
 event session_channel_request_3(ts: time, version: string, sid: string, cid: count, pid: int, channel: count, rtype: string)
 {
-	# This is a reuest for a channel type - the value will be filled
+	# This is a request for a channel type - the value will be filled
 	#  in via the new_channel event, but this is where things are actually requested
 	#
 	# rtype values are: shell, exec, pty-req, x11-req, auth-agent@openssh.com, subsystem, env
@@ -978,6 +1001,7 @@ event session_remote_do_exec_3(ts: time, version: string, sid: string, cid: coun
 	#  to be forced, execute that instead.
 
 	local CR:client_record = test_cid(sid,cid);
+	register_cid(sid,cid,ppid);
 
 	local s_data = fmt("%s", str_shell_escape(command));
 	log_session_update_event(CR, ts, "SESSION_REMOTE_DO_EXEC_3", s_data);
@@ -990,6 +1014,7 @@ event session_remote_exec_no_pty_3(ts: time, version: string, sid: string, cid: 
 	#  setting up file descriptors and such.
 
 	local CR:client_record = test_cid(sid,cid);
+	register_cid(sid,cid,ppid);
 
 	local s_data = fmt("%s", str_shell_escape(command));
 	log_session_update_event(CR, ts, "SESSION_REMOTE_DO_EXEC_NO_PTY_3", s_data);
@@ -1003,6 +1028,7 @@ event session_remote_exec_pty_3(ts: time, version: string, sid: string, cid: cou
 	#  lastlog, and other such operations.
 
 	local CR:client_record = test_cid(sid,cid);
+	register_cid(sid,cid,ppid);
 
 	local s_data = fmt("%s", str_shell_escape(command));
 	log_session_update_event(CR, ts, "SESSION_REMOTE_DO_EXEC_PTY_3", s_data);
