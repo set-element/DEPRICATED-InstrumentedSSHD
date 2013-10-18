@@ -4,6 +4,7 @@
 #  from the sshd and syslog policy.
 #
 # 
+#@load sql
 
 module USER_CORE;
 
@@ -33,7 +34,7 @@ export {
 	type Info: record {
 		## Record for user transaction
 		ts:		time &log;
-		key:		string &log;
+		key:		string &log &default="NA";
 		id:		conn_id &log;
 		host:		string &log &default="UNKNOWN_HOST";
 		uid:		string &log &default="UNKNOWN_UID";
@@ -43,6 +44,8 @@ export {
 		svc_type:	string &log &default="UNKNOWN_TYPE";
 		# service response
 		svc_resp:	string &log &default="UNKNOWN_RESP";
+		# service auth: type of authentiation used in transaction
+		svc_auth:	string &log &default="UNKNOWN_AUTH";
 		# transaction data
 		data:		string &log;
 		};
@@ -75,6 +78,9 @@ export {
 	global uid_cred_cache: table[string] of string &write_expire=1 min &redef;
 	#  perminant uid <-> fingerprint set
 	global uid_lookup: table[string] of string &persistent;
+
+	# do we log via sqlite?
+	const log_sqlite = F &redef;
 	
 	#
         ######################################################################################
@@ -88,10 +94,10 @@ export {
 	global user_postponed: function(ts: time, s_addr: addr, r_addr: addr, uid: string, data_src: string, key: string);
 	global user_invalid: function(s_addr: addr, r_addr: addr, uid: string);
 
-	global user_history: function(ts: time, id: conn_id, uid: string, svc_name: string, svc_type: string, svc_resp: string, data: string): count;
+	global user_history: function(ts: time, id: conn_id, uid: string, svc_name: string, svc_type: string, svc_resp: string, svc_auth: string, data: string): count;
 
 	global auth_key_fingerprint_3: event(ts: time, version: string, sid: string, cid: count, fingerprint: string, key_type: string);
-	global auth_transaction: event(ts: time, id: conn_id, uid: string, host: string, svc_name: string, svc_type: string, svc_resp: string, data: string);
+	global auth_transaction: event(ts: time, key: string, id: conn_id, uid: string, host: string, svc_name: string, svc_type: string, svc_resp: string, svc_auth: string, data: string);
 	global auth_transaction_token: event(uid: string, session_key: string, data: string);
         ######################################################################################
         # CONFIGURATION
@@ -117,6 +123,8 @@ export {
 	const uid_login_threshold: count = 10 &redef;
 	# subnet mask to apply to addresses - expressed as bitmask
 	const bitmap_box = 24 &redef;
+	# ignore local addresses for history?
+	const skip_local_addr_history = T &redef;
 
 } # end of export
 
@@ -177,18 +185,20 @@ function create_conn_id(s_addr: addr, s_port: port, r_addr: addr, r_port: port) 
 	return id;
 }
 
-function log_transaction(ts: time, id: conn_id, uid: string, host: string, svc_name: string, svc_type: string, svc_resp: string, data: string) : count
+function log_transaction(ts: time, key: string, id: conn_id, uid: string, host: string, svc_name: string, svc_type: string, svc_resp: string, svc_auth: string, data: string) : count
 {
 	local t_Info: Info;
 	local ret: count = 0;
 
 	t_Info$ts = ts;
+	t_Info$key = key;
 	t_Info$id = id;
 	t_Info$uid = uid;
 	t_Info$host = host;
 	t_Info$svc_name = svc_name;
 	t_Info$svc_type = svc_type;
 	t_Info$svc_resp = svc_resp;
+	t_Info$svc_auth = svc_auth;
 	t_Info$data = data;
 
 	# and print the results
@@ -197,24 +207,35 @@ function log_transaction(ts: time, id: conn_id, uid: string, host: string, svc_n
 	return ret;
 }
 
-function user_history(ts: time, id: conn_id, uid: string, svc_name: string, svc_type: string, svc_resp: string, data: string) : count
+function user_history(ts: time, id: conn_id, uid: string, svc_name: string, svc_type: string, svc_resp: string, svc_auth: string, data: string) : count
 {
 	## For the transaction line provided, test user history etc
 	local ret_val: count = 0;
 	local t_UR = test_uid(uid);
 	local t_net = mask_addr(id$orig_h, bitmap_box);
 
-	# see if this has been observed already
+	# do we punt on local addresses?
+	if ( skip_local_addr_history ) {
+		if ( Site::is_local_addr(id$orig_h) )
+			return ret_val;
+		}
+
+	# see if this network has been observed already for the uid
 	if ( t_net in t_UR$from_net ) {
 		# already seen, add the data and move on ...
 		++t_UR$from_net[t_net];
 		++t_UR$total;
+		#print fmt("UID: %s seen from net %s already %s times", uid,t_net,t_UR$total);
 		}
 	else {
-		# not observed before have
+		# the net not observed before for this uid
+		#   and the total number of observations is
+		#   under the uid_login_threshold for the uid
+		#
 		if ( t_UR$total < uid_login_threshold ) {
 			t_UR$from_net[t_net] = 1;
 			++t_UR$total;
+			#print fmt("UID: %s new net %s", uid,t_net);
  			}
 		else {
 		# new data value, worth evaluating?  move this over to the user_policy.bro
@@ -232,8 +253,12 @@ function user_history(ts: time, id: conn_id, uid: string, svc_name: string, svc_
 			
 			t_UR$from_net[t_net] = 1;
 			++t_UR$total;
+
+			#print fmt("new subnet %s for %s [%s]", uid, t_net, b);
 		}
 	}
+
+	uid_data[uid] = t_UR;
 
 	return ret_val;
 }
@@ -294,6 +319,10 @@ function user_accept(ts: time, s_addr: addr, r_addr: addr, uid: string, data_src
 			uid_lookup[t_key] = uid;
 			}
 		}
+
+	#if ( log_sqlite)
+		#event SQLITE::auth_logger(uid, mask_addr(s_addr, bitmap_box), data_src);
+
 	return;
 }
 
@@ -361,12 +390,13 @@ function user_postponed(ts: time, s_addr: addr, r_addr: addr, uid: string, data_
 # service response ('ACCEPTED', 'FAILED' and 'POSTPONED') (prev called authmsg)
 #  the set can be extended via the usual event hyjinx...
 #
-event auth_transaction(ts: time, id: conn_id, uid: string, host: string, svc_name: string, svc_type: string, svc_resp: string, data: string)
+event auth_transaction(ts: time, key: string, id: conn_id, uid: string, host: string, svc_name: string, svc_type: string, svc_resp: string, svc_auth: string, data: string)
 {
 	# first normalize all the non-case sensitive informaiton
 	local t_svc_name = to_upper(svc_name);
 	local t_svc_type = to_upper(svc_type);
 	local t_svc_resp = to_upper(svc_resp);
+	local t_svc_auth = to_upper(svc_auth);
 
 	## process the transaction in terms of the source address
 	# the auth method will be passed along in the data field
@@ -375,7 +405,7 @@ event auth_transaction(ts: time, id: conn_id, uid: string, host: string, svc_nam
 		user_accept(ts, id$orig_h, id$resp_h, uid, t_svc_name, data);
 	
 		## now take care of the user account history
-		user_history(ts, id, uid, t_svc_name, t_svc_type, t_svc_resp, data);
+		user_history(ts, id, uid, t_svc_name, t_svc_type, t_svc_resp, t_svc_auth, data);
 		}
 
 	if ( t_svc_resp == "FAILED" )
@@ -385,7 +415,7 @@ event auth_transaction(ts: time, id: conn_id, uid: string, host: string, svc_nam
 		user_postponed(ts, id$orig_h, id$resp_h, uid, t_svc_name, data);
 
 	## transactional logging
-	log_transaction(ts, id, uid, host, t_svc_name, t_svc_type, t_svc_resp, data);
+	log_transaction(ts, key, id, uid, host, t_svc_name, t_svc_type, t_svc_resp, t_svc_auth, data);
 }
 
 ## This is the gateway for the authentication *token* to identify collisions
