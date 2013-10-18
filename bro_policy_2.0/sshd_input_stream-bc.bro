@@ -36,7 +36,9 @@ export {
 	global v2s: vector of count = vector(2,4,6);
 
 	# location of input file
-	const data_file = "/data/sshd_data" &redef;
+	const data_file = "/trace/sshd_logs/ssh_logging" &redef;
+	# semiphore for in-fr restart
+	global stop_sem = 0;
 
 	# notify on unknown event?
 	const notify_unknown_event = F;
@@ -47,10 +49,10 @@ export {
 	const input_high_water:count = 100 &redef; 
 	const input_test_interval:interval = 60 sec &redef;
 	# track input rate ( events/input_test_interval)
-	global input_count: count = 1;
-	global input_count_prev: count = 1;
+	global input_count: count = 1 &redef;
+	global input_count_prev: count = 1 &redef;
 	#  0=pre-init, 1=ok, 2=in low error
-	global input_count_state: count = 0;
+	global input_count_state: count = 0 &redef;
 
 	}
 
@@ -2590,12 +2592,29 @@ event sshLine(description: Input::EventDescription, tpe: Input::Event, LV: lineV
 		}
 	}
 
+event stop_reader()
+	{
+	if ( stop_sem == 0 ) {
+		Input::remove("isshd");
+		stop_sem = 1;
+		}
+	}
+
+event start_reader()
+	{
+	if ( stop_sem == 1 ) { 
+		Input::add_event([$source=data_file, $reader=Input::READER_RAW, $mode=Input::TSTREAM, $name="isshd", $fields=lineVals, $ev=sshLine]);
+		stop_sem = 0;
+		}
+	}
+
 event transaction_rate()
 	{
-	if ( ! input_count_test )
-		return;
+	#if ( ! input_count_test )
+	#	return;
 
 	local delta = input_count - input_count_prev;
+	print fmt("Log delta: %s", delta);
 
 	# rate is too low - send a notice the first time
 	if ( (delta > 0) && (delta < input_low_water) ) {
@@ -2606,6 +2625,12 @@ event transaction_rate()
 				$msg=fmt("event rate %s per %s", delta, input_test_interval)]);
 		
 		input_count_state = 2; # 2: low transaction rate	
+		}
+
+	# perhaps the data file has rotated out from under the input descriptor?
+	if (delta < input_low_water) {
+		schedule 1 sec { stop_reader() };
+		schedule 10 sec { start_reader() };
 		}
 
 	# rate is ok
@@ -2623,9 +2648,13 @@ event transaction_rate()
 event bro_init()
 	{
 	# input stream setup
-	Input::add_event([$source=data_file, $reader=Input::READER_RAW, $mode=Input::TSTREAM, $name="issh", $fields=lineVals, $ev=sshLine]);
+	if ( (Cluster::local_node_type() == Cluster::WORKER) && (file_size(data_file) != -1.0) ) {
+		print fmt("%s SSHD data file %s located", gethostname(), data_file);
+		Input::add_event([$source=data_file, $reader=Input::READER_RAW, $mode=Input::TSTREAM, $name="isshd", $fields=lineVals, $ev=sshLine]);
 
-	# start rate monitoring for event stream 
-	if ( input_count_test ) 
+		# start rate monitoring for event stream 
 		schedule input_test_interval { transaction_rate() };
+		}
+	else
+		print fmt("%s SSHD data file %s not found", gethostname(), data_file);
 	}
