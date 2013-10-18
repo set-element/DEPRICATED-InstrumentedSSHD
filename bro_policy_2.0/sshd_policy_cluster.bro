@@ -285,8 +285,8 @@ function test_suspicous(data:string, CR: SSHD_CORE::client_record, channel:count
 				if ( (notify_suspicous_command) && (CR$suspicous_count <= suspicous_threshold) ) {
 	
 					NOTICE([$note=SSHD_Suspicous,
-						$msg=fmt("#%s %s %s %s %s @ %s -> %s:%s command: %s",
-						CR$client_tag, channel, sid, cid, CR$uid,
+						$msg=fmt("%s %s %s %s %s @ %s -> %s:%s command: %s",
+						CR$log_id, channel, sid, cid, CR$uid,
 						CR$id$orig_h, CR$id$resp_h, 
 						CR$id$resp_p, s_set_element)]);
 					}
@@ -302,8 +302,8 @@ function test_suspicous(data:string, CR: SSHD_CORE::client_record, channel:count
 					}
 
 					NOTICE([$note=SSHD_SuspicousThreshold,
-						$msg=fmt("#%s %s %s %s %s @ %s -> %s %s:%s {%s}",
-						CR$client_tag, channel, sid, cid, CR$uid, 
+						$msg=fmt("%s %s %s %s %s @ %s -> %s %s:%s {%s}",
+						CR$log_id, channel, sid, cid, CR$uid, 
 						CR$id$orig_h, sid, CR$id$resp_h, 
 						CR$id$resp_p, r_s)]);
 				}
@@ -325,8 +325,8 @@ function test_remote_exec(data: string, CR: SSHD_CORE::client_record, sid:string
 	
 		#
 		NOTICE([$note=SSHD_RemoteExecHostile,
-		$msg=fmt("#%s - %s %s %s @ %s -> %s:%s command: %s",
-		CR$client_tag, sid, cid, CR$uid, 
+		$msg=fmt("%s - %s %s %s @ %s -> %s:%s command: %s",
+		CR$log_id, sid, cid, CR$uid, 
 		CR$id$orig_h, CR$id$resp_h, 
 		CR$id$resp_p, data)]);
 			
@@ -365,8 +365,8 @@ function test_hostile_client(data:string, CR: SSHD_CORE::client_record, channel:
 
 		# now make sure the mess is safe to print in the notice
 		NOTICE([$note=SSHD_Hostile,
-			$msg=fmt("#%s %s %s %s %s @ %s -> %s:%s client output:%s [%s]",
-				CR$client_tag, CR$channel_type[channel], sid, cid, 
+			$msg=fmt("%s %s %s %s %s @ %s -> %s:%s client output:%s [%s]",
+				CR$log_id, CR$channel_type[channel], sid, cid, 
 				CR$uid, CR$id$orig_h, CR$id$resp_h, CR$id$resp_p, 
 				str_shell_escape(data), str_shell_escape(ret_str) )]);
 
@@ -404,8 +404,8 @@ function test_hostile_server(data:string, CR: SSHD_CORE::client_record, channel:
 		}
 	
 		NOTICE([$note=SSHD_Hostile,
-			$msg=fmt("#%s %s %s %s %s @ %s -> %s:%s server output: %s [%s]",
-				CR$client_tag, CR$channel_type[channel], sid, cid, CR$uid, 
+			$msg=fmt("%s %s %s %s %s @ %s -> %s:%s server output: %s [%s]",
+				CR$log_id, CR$channel_type[channel], sid, cid, CR$uid, 
 				CR$id$orig_h, CR$id$resp_h, CR$id$resp_p,  
 				str_shell_escape(data), str_shell_escape(ret_str) )]);
 				
@@ -425,7 +425,7 @@ event auth_invalid_user_3(ts: time, version: string, sid: string, cid: count, ui
 		local CR:SSHD_CORE::client_record = SSHD_CORE::test_cid(sid,cid);
 
 		NOTICE([$note=SSHD_POL_InvalUser,
-			$msg=fmt("#%s %s @ %s -> %s:%s", CR$client_tag, uid, 
+			$msg=fmt("%s %s @ %s -> %s:%s", CR$log_id, uid, 
 				CR$id$orig_h, CR$id$resp_h, CR$id$resp_p )]);
 	}
 }
@@ -437,8 +437,8 @@ event auth_key_fingerprint_3(ts: time, version: string, sid: string, cid: count,
 	if ( fingerprint in bad_key_list ) {
 
 		NOTICE([$note=SSHD_BadKey,
-			$msg=fmt("#%s 0 %s %s %s @ %s -> %s:%s %s %s %s",
-				CR$client_tag, sid, cid, CR$uid,
+			$msg=fmt("%s 0 %s %s %s @ %s -> %s:%s %s %s %s",
+				CR$log_id, sid, cid, CR$uid,
 				CR$id$orig_h, sid, CR$id$resp_h,
 				CR$id$resp_p, key_type, fingerprint)]);
 	}
@@ -451,7 +451,7 @@ event auth_pass_attempt_3(ts: time, version: string, sid: string, cid: count, ui
 		local CR:SSHD_CORE::client_record =  SSHD_CORE::test_cid(sid,cid);
 
 		NOTICE([$note=SSHD_POL_AuthPassAtt,
-			$msg=fmt("#%s %s @ %s:%s -> %s:%s", CR$client_tag, uid, password,
+			$msg=fmt("%s %s @ %s:%s -> %s:%s", CR$log_id, uid, password,
 				CR$id$orig_h, CR$id$resp_h, CR$id$resp_p )]);
 	}
 }
@@ -533,7 +533,7 @@ event channel_pass_skip_3(ts: time, version: string, sid: string, cid: count, ch
 		local CR:SSHD_CORE::client_record =  SSHD_CORE::test_cid(sid,cid);
 
 		NOTICE([$note=SSHD_POL_PassSkip,
-			$msg=fmt("#%s %s @ %s:%s", CR$client_tag, CR$uid,
+			$msg=fmt("%s %s @ %s:%s", CR$log_id, CR$uid,
 				CR$id$resp_h, CR$id$resp_p )]);
 	}
 
@@ -545,8 +545,8 @@ event channel_port_open_3(ts: time, version: string, sid: string, cid: count, ch
 		local CR:SSHD_CORE::client_record =  SSHD_CORE::test_cid(sid,cid);
 
 		NOTICE([$note=SSHD_POL_ChanPortOpen,
-			$msg=fmt("#%s listen port %s for %s %s:%s -> %s:%s",
-				CR$client_tag, rtype, l_port, rem_host, rem_port, path, h_port)]);
+			$msg=fmt("%s listen port %s for %s %s:%s -> %s:%s",
+				CR$log_id, rtype, l_port, rem_host, rem_port, path, h_port)]);
 	}
 
 }
@@ -557,7 +557,7 @@ event channel_portfwd_req_3(ts: time, version: string, sid: string, cid: count, 
 		local CR:SSHD_CORE::client_record =  SSHD_CORE::test_cid(sid,cid);
 
 		NOTICE([$note=SSHD_POL_ChanPortFwrd,
-			$msg=fmt("#%s %s:%s", CR$client_tag, host, fwd_port)]);
+			$msg=fmt("%s %s:%s", CR$log_id, host, fwd_port)]);
 	}
 }
 
@@ -567,8 +567,8 @@ event channel_post_fwd_listener_3(ts: time, version: string, sid: string, cid: c
 		local CR:SSHD_CORE::client_record =  SSHD_CORE::test_cid(sid,cid);
 
 		NOTICE([$note=SSHD_POL_ChanPostFwrd,
-			$msg=fmt("#%s %s %s -> %s:%s", 
-				CR$client_tag, rtype, l_port, path, h_port)]);
+			$msg=fmt("%s %s %s -> %s:%s", 
+				CR$log_id, rtype, l_port, path, h_port)]);
 	}
 }
 
@@ -578,8 +578,8 @@ event channel_set_fwd_listener_3(ts: time, version: string, sid: string, cid: co
 		local CR:SSHD_CORE::client_record =  SSHD_CORE::test_cid(sid,cid);
 
 		NOTICE([$note=SSHD_POL_ChanSetFwrd,
-			$msg=fmt("#%s wc:%s %s -> %s:%s", 
-				CR$client_tag, wildcard, l_port, forward_host, h_port)]);
+			$msg=fmt("%s wc:%s %s -> %s:%s", 
+				CR$log_id, wildcard, l_port, forward_host, h_port)]);
 	}
 }
 
@@ -589,8 +589,8 @@ event channel_socks4_3(ts: time, version: string, sid: string, cid: count, chann
 		local CR:SSHD_CORE::client_record =  SSHD_CORE::test_cid(sid,cid);
 
 		NOTICE([$note=SSHD_POL_Socks4,
-			$msg=fmt("#%s command: %s socks4 to %s @ %s:%s", 
-				CR$client_tag, command, username, path, h_port)]);
+			$msg=fmt("%s command: %s socks4 to %s @ %s:%s", 
+				CR$log_id, command, username, path, h_port)]);
 	}
 }
 
@@ -600,8 +600,8 @@ event channel_socks5_3(ts: time, version: string, sid: string, cid: count, chann
 		local CR:SSHD_CORE::client_record =  SSHD_CORE::test_cid(sid,cid);
 
 		NOTICE([$note=SSHD_POL_Socks5,
-			$msg=fmt("#%s command: %s[%s] socks5 to %s:%s",
-				CR$client_tag, socks5_header_types[command], command, path, h_port)]);
+			$msg=fmt("%s command: %s[%s] socks5 to %s:%s",
+				CR$log_id, socks5_header_types[command], command, path, h_port)]);
 	}
 }
 
@@ -611,8 +611,8 @@ event session_input_channel_open_3(ts: time, version: string, sid: string, cid: 
 		local CR:SSHD_CORE::client_record =  SSHD_CORE::test_cid(sid,cid);
 
 		NOTICE([$note=SSHD_POL_SesInChanOpen,
-			$msg=fmt("#%s %s ctype %s rchan %d win %d max %d",
-				CR$client_tag,CR$channel_type[int_to_count(rchan)], 
+			$msg=fmt("%s %s ctype %s rchan %d win %d max %d",
+				CR$log_id,CR$channel_type[int_to_count(rchan)], 
 				ctype, rchan, rwindow, rmaxpack)]);
 	}
 }
@@ -623,7 +623,7 @@ event session_new_3(ts: time, version: string, sid: string, cid: count, pid: int
 		local CR:SSHD_CORE::client_record =  SSHD_CORE::test_cid(sid,cid);
 
 		NOTICE([$note=SSHD_POL_SesNew,
-			$msg=fmt("#%s %s", CR$client_tag, ver)]);
+			$msg=fmt("%s %s", CR$log_id, ver)]);
 	}
 }
 
@@ -674,8 +674,8 @@ event session_request_direct_tcpip_3(ts: time, version: string, sid: string, cid
 		local CR:SSHD_CORE::client_record =  SSHD_CORE::test_cid(sid,cid);
 
 		NOTICE([$note=SSHD_POL_DirTCPIP,
-			$msg=fmt("#%s %s:%s -> %s:%s",
-				CR$client_tag, originator, orig_port, target, target_port)]);
+			$msg=fmt("%s %s:%s -> %s:%s",
+				CR$log_id, originator, orig_port, target, target_port)]);
 	}
 }
 
@@ -685,7 +685,7 @@ event session_tun_init_3(ts: time, version: string, sid: string, cid: count, cha
 		local CR:SSHD_CORE::client_record =  SSHD_CORE::test_cid(sid,cid);
 
 		NOTICE([$note=SSHD_POL_TunInit,
-			$msg=fmt("#%s %s", CR$client_tag, tunnel_type[mode] )]);
+			$msg=fmt("%s %s", CR$log_id, tunnel_type[mode] )]);
 	}
 }
 
@@ -695,7 +695,7 @@ event session_x11fwd_3(ts: time, version: string, sid: string, cid: count, chann
 		local CR:SSHD_CORE::client_record =  SSHD_CORE::test_cid(sid,cid);
 
 		NOTICE([$note=SSHD_POL_x11fwd,
-			$msg=fmt("#%s %s", CR$client_tag, display)]);
+			$msg=fmt("%s %s", CR$log_id, display)]);
 	}
 }
 
