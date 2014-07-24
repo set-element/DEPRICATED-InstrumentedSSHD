@@ -174,6 +174,17 @@ compat_datafellows(const char *version)
 			datafellows = check[i].bugs;
 			debug("match: %s pat %s compat 0x%08x",
 			    version, check[i].pat, datafellows);
+
+ 			/* Check to see if the remote side is OpenSSH and not HPN */
+ 			if(strstr(version,"OpenSSH") != NULL)
+ 			{
+ 				if (strstr(version,"hpn") == NULL)
+ 				{
+ 					datafellows |= SSH_BUG_LARGEWINDOW;
+ 					debug("Remote is NON-HPN aware");
+ 				}
+ 			}
+
 			return;
 		}
 	}

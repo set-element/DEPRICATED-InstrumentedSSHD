@@ -139,6 +139,9 @@ int deny_severity;
 #define REEXEC_CONFIG_PASS_FD		(STDERR_FILENO + 3)
 #define REEXEC_MIN_FREE_FD		(STDERR_FILENO + 4)
 
+int myflag = 0;
+
+
 extern char *__progname;
 
 /* Server configuration options. */
@@ -436,7 +439,7 @@ sshd_exchange_identification(int sock_in, int sock_out)
 	}
 
 	xasprintf(&server_version_string, "SSH-%d.%d-%.100s%s%s%s",
-	    major, minor, SSH_VERSION,
+	    major, minor, SSH_RELEASE,
 	    *options.version_addendum == '\0' ? "" : " ",
 	    options.version_addendum, newline);
 
@@ -1082,6 +1085,8 @@ server_listen(void)
 	int ret, listen_sock, on = 1;
 	struct addrinfo *ai;
 	char ntop[NI_MAXHOST], strport[NI_MAXSERV];
+	int socksize;
+	int socksizelen = sizeof(int);
 
 	for (ai = options.listen_addrs; ai; ai = ai->ai_next) {
 		if (ai->ai_family != AF_INET && ai->ai_family != AF_INET6)
@@ -1121,6 +1126,11 @@ server_listen(void)
 			sock_set_v6only(listen_sock);
 
 		debug("Bind to port %s on %s.", strport, ntop);
+
+		getsockopt(listen_sock, SOL_SOCKET, SO_RCVBUF,
+				   &socksize, &socksizelen);
+		debug("Server TCP RWIN socket size: %d", socksize);
+		debug("HPN Buffer Size: %d", options.hpn_buffer_size);
 
 		/* Bind the socket to the desired port. */
 		if (bind(listen_sock, ai->ai_addr, ai->ai_addrlen) < 0) {
@@ -1989,6 +1999,9 @@ main(int ac, char **av)
 	fcntl(sock_out, F_SETFD, FD_CLOEXEC);
 	fcntl(sock_in, F_SETFD, FD_CLOEXEC);
 
+	/* set the HPN options for the child */
+	channel_set_hpn(options.hpn_disabled, options.hpn_buffer_size);
+
 	/*
 	 * Disable the key regeneration alarm.  We will not regenerate the
 	 * key since we are no longer in a position to give it to anyone. We
@@ -2439,9 +2452,15 @@ do_ssh2_kex(void)
 {
 	Kex *kex;
 
+	myflag++;
+	debug ("MYFLAG IS %d", myflag);
 	if (options.ciphers != NULL) {
 		myproposal[PROPOSAL_ENC_ALGS_CTOS] =
 		myproposal[PROPOSAL_ENC_ALGS_STOC] = options.ciphers;
+	} else if (options.none_enabled == 1) {
+		debug ("WARNING: None cipher enabled");
+		myproposal[PROPOSAL_ENC_ALGS_CTOS] =
+		myproposal[PROPOSAL_ENC_ALGS_STOC] = KEX_ENCRYPT_INCLUDE_NONE;
 	}
 	myproposal[PROPOSAL_ENC_ALGS_CTOS] =
 	    compat_cipher_proposal(myproposal[PROPOSAL_ENC_ALGS_CTOS]);
