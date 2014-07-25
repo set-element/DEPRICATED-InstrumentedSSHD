@@ -65,6 +65,11 @@
 #include "authfile.h"
 #include "match.h"
 
+#ifdef NERSC_MOD
+#include "nersc.h"
+extern int client_session_id;
+#endif
+
 /* import */
 extern ServerOptions options;
 extern u_char *session_id2;
@@ -409,6 +414,18 @@ check_authkeys_file(FILE *f, char *file, Key* key, struct passwd *pw)
 			fp = key_fingerprint(found, SSH_FP_MD5, SSH_FP_HEX);
 			debug("matching key found: file %s, line %lu %s %s",
 			    file, linenum, key_type(found), fp);
+
+#ifdef NERSC_MOD
+ 			char* t1key = encode_string(fp, strlen(fp));
+ 			char* t2key = encode_string(key_type(found), strlen(key_type(found)) );
+ 			
+ 			s_audit("auth_key_fingerprint_3", "count=%i uristring=%s uristring=%s", 
+ 				client_session_id, t1key, t2key);
+ 				
+ 			free(t1key);
+ 			free(t2key);
+#endif
+ 
 			free(fp);
 			break;
 		}
