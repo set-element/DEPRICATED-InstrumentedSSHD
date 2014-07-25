@@ -1431,6 +1431,10 @@ Optional Packages:
   --with-privsep-user=user Specify non-privileged user for privilege separation
   --with-sandbox=style    Specify privilege separation sandbox (no, darwin, rlimit, systrace, seccomp_filter, capsicum)
   --with-selinux          Enable SELinux support
+  --with-nerscmod         Add sshd instrumentation
+  --with-stunnelport=PORT Set stunnel port if other than 799/tcp
+  --with-stunnelhost=HOST Set stunnel host if other than localhost.  Do not quote.
+  --with-passwdrec        Record password data
   --with-kerberos5=PATH   Enable Kerberos 5 support
   --with-privsep-path=xxx Path for privilege separation chroot (default=/var/empty)
   --with-xauth=PATH       Specify path to xauth program
@@ -16555,6 +16559,98 @@ done
 fi
 
 
+NERSC_MOD='no'
+
+# Check whether --with-nerscmod was given.
+if test "${with_nerscmod+set}" = set; then
+  withval=$with_nerscmod;
+		if test "x$withval" != "xno" ; then
+			NERSC_MOD='yes'
+
+cat >>confdefs.h <<\_ACEOF
+#define NERSC_MOD 1
+_ACEOF
+
+			{ echo "$as_me:$LINENO: result: yes" >&5
+echo "${ECHO_T}yes" >&6; }
+
+		fi
+
+
+fi
+
+
+STUNNEL_PORT='799'
+
+
+# Check whether --with-stunnelport was given.
+if test "${with_stunnelport+set}" = set; then
+  withval=$with_stunnelport;
+
+		case "$withval" in
+		[0-9]*)
+			STUNNEL_PORT="$withval"
+			;;
+		*)
+			{ { echo "$as_me:$LINENO: error: You must specify a numeric port number for --with-stunnelport" >&5
+echo "$as_me: error: You must specify a numeric port number for --with-stunnelport" >&2;}
+   { (exit 1); exit 1; }; }
+			;;
+		esac
+
+		if test ! -z "$withval"  ; then
+			#STUNNEL_PORT="$withval"
+
+cat >>confdefs.h <<_ACEOF
+#define STUNNEL_PORT $STUNNEL_PORT
+_ACEOF
+
+		fi
+
+
+fi
+
+
+STUNNEL_HOST='localhost'
+
+# Check whether --with-stunnelhost was given.
+if test "${with_stunnelhost+set}" = set; then
+  withval=$with_stunnelhost;
+
+		STUNNEL_HOST="localhost"
+
+		if test "x$withval" != "xno"  ; then
+			STUNNEL_HOST="\"$withval\""
+
+cat >>confdefs.h <<_ACEOF
+#define STUNNEL_HOST $STUNNEL_HOST
+_ACEOF
+
+		fi
+
+
+fi
+
+
+
+PASSWD_REC='no'
+
+# Check whether --with-passwdrec was given.
+if test "${with_passwdrec+set}" = set; then
+  withval=$with_passwdrec;
+		if test "x$withval" != "xno" ; then
+			PASSWD_REC='yes'
+cat >>confdefs.h <<\_ACEOF
+#define PASSWD_REC 1
+_ACEOF
+
+			{ echo "$as_me:$LINENO: result: yes" >&5
+echo "${ECHO_T}yes" >&6; }
+
+		fi
+
+
+fi
 
 
 # Check whether user wants Kerberos 5 support
@@ -19693,6 +19789,10 @@ echo "       IP address in \$DISPLAY hack: $DISPLAY_HACK_MSG"
 echo "           Translate v4 in v6 hack: $IPV4_IN6_HACK_MSG"
 echo "                  BSD Auth support: $BSD_AUTH_MSG"
 echo "              Random number source: $RAND_MSG"
+echo "              NERSC Mods          : $NERSC_MOD"
+echo "              STUNNEL Host        : $STUNNEL_HOST"
+echo "              STUNNEL Port        : $STUNNEL_PORT"
+echo "              Record Passwd Data  : $PASSWD_REC"
 echo "             Privsep sandbox style: $SANDBOX_STYLE"
 
 echo ""
