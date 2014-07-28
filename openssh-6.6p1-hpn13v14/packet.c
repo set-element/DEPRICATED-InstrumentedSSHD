@@ -848,7 +848,7 @@ packet_enable_delayed_compress(void)
 /*
  * Finalize packet in SSH2 format (compress, mac, encrypt, enqueue)
  */
-static void
+static int
 packet_send2_wrapped(void)
 {
 	u_char type, *cp, *macbuf = NULL;
@@ -980,7 +980,7 @@ packet_send2_wrapped(void)
 		set_newkeys(MODE_OUT);
 	else if (type == SSH2_MSG_USERAUTH_SUCCESS && active_state->server_side)
 		packet_enable_delayed_compress();
-	return(packet_length);
+	return(len);
 }
 
 static int
@@ -1006,7 +1006,7 @@ packet_send2(void)
 			    sizeof(Buffer));
 			buffer_init(&active_state->outgoing_packet);
 			TAILQ_INSERT_TAIL(&active_state->outgoing, p, next);
-			return;
+			return(packet_length);
 		}
 	}
 
@@ -1741,13 +1741,14 @@ packet_write_poll(void)
 		if (len == -1) {
 			if (errno == EINTR || errno == EAGAIN ||
 			    errno == EWOULDBLOCK)
-				return;
+				return(len);
 			fatal("Write failed: %.100s", strerror(errno));
 		}
 		if (len == 0 && !cont)
 			fatal("Write connection closed");
 		buffer_consume(&active_state->output, len);
 	}
+	return(len);
 }
 
 /*
