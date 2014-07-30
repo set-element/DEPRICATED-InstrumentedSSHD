@@ -485,8 +485,7 @@ do_authenticated1(Authctxt *authctxt)
  					packet_disconnect("command execution failed");
  					}
 #else
-					packet_disconnect(
-					    "command execution failed"); 
+					packet_disconnect("command execution failed"); 
 #endif
 				free(command);
 			} else {
@@ -495,10 +494,10 @@ do_authenticated1(Authctxt *authctxt)
 #ifdef NERSC_MOD
  					t_success2 = 0;
 #endif
-					packet_disconnect(
-					    "shell execution failed");
+					packet_disconnect("shell execution failed");
 					}
 
+			}
 			packet_check_eom();
 			session_close(s);
 			return;
