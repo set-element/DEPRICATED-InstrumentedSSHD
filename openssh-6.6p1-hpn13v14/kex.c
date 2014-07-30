@@ -462,6 +462,7 @@ kex_choose_conf(Kex *kex)
 	int nenc, nmac, ncomp;
 	u_int mode, ctos, need, dh_need, authlen;
 	int first_kex_follows, type;
+	int log_flag = 0;
 
 	int auth_flag;
 
