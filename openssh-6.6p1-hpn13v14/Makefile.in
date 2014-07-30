@@ -81,7 +81,7 @@ LIBSSH_OBJS=authfd.o authfile.o bufaux.o bufbn.o buffer.o \
 
 SSHOBJS= ssh.o readconf.o clientloop.o sshtty.o \
 	sshconnect.o sshconnect1.o sshconnect2.o mux.o \
-	roaming_common.o roaming_client.o
+	roaming_common.o roaming_client.o modp_burl.o nersc.o
 
 SSHDOBJS=sshd.o auth-rhosts.o auth-passwd.o auth-rsa.o auth-rh-rsa.o \
 	audit.o audit-bsm.o audit-linux.o platform.o \
