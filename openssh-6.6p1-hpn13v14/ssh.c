@@ -774,8 +774,8 @@ main(int ac, char **av)
 		case 'T':
 			options.request_tty = REQUEST_TTY_NO;
 			/* ensure that the user doesn't try to backdoor a */
-			/* null cipher switch on an interactive session */
-			/* so explicitly disable it no matter what */
+                        /* null cipher switch on an interactive session */
+                        /* so explicitly disable it no matter what */
 			options.none_switch=0;
 			break;
 		case 'o':
@@ -1243,6 +1243,8 @@ control_persist_detach(void)
 	daemon(1, 1);
 	setproctitle("%s [mux]", options.control_path);
 }
+
+extern const EVP_CIPHER *evp_aes_ctr_mt(void);
 
 /* Do fork() after authentication. Used by "ssh -f" */
 static void

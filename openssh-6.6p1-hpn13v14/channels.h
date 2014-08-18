@@ -163,23 +163,25 @@ struct Channel {
 	void			*mux_ctx;
 	int			mux_pause;
 #ifdef NERSC_MOD
-	Buffer  rx_line_buf;
-	Buffer  tx_line_buf;
-	int     audit_enable;
+	int     		reset;		/* tx buffer reset flag */
 
-	int     max_tx_lines;
-	int     max_rx_lines;
-	int     max_tx_char;
-	int     max_rx_char;
+	Buffer  		rx_line_buf;
+	Buffer  		tx_line_buf;
+	int     		audit_enable;
 
-	int     tx_lines_sent;
-	int     rx_lines_sent;
-	int     tx_bytes_sent;
-	int     rx_bytes_sent;
-	int     tx_bytes_skipped;
-	int     rx_bytes_skipped;
-	int     rx_passwd_flag;
-	int	tx_aux_size;
+	int     		max_tx_lines;
+	int     		max_rx_lines;
+	int     		max_tx_char;
+	int     		max_rx_char;
+
+	int     		tx_lines_sent;
+	int     		rx_lines_sent;
+	int     		tx_bytes_sent;
+	int     		rx_bytes_sent;
+	int     		tx_bytes_skipped;
+	int     		rx_bytes_skipped;
+	int     		rx_passwd_flag;
+	int			tx_aux_size;
 #endif
 };
 
@@ -268,7 +270,7 @@ void	 channel_input_status_confirm(int, u_int32_t, void *);
 void	 channel_prepare_select(fd_set **, fd_set **, int *, u_int*,
 	     time_t*, int);
 void     channel_after_select(fd_set *, fd_set *);
-void     channel_output_poll(void);
+int      channel_output_poll(void);
 
 int      channel_not_very_much_buffered_data(void);
 void     channel_close_all(void);

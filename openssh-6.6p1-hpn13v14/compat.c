@@ -184,7 +184,6 @@ compat_datafellows(const char *version)
  					debug("Remote is NON-HPN aware");
  				}
  			}
-
 			return;
 		}
 	}

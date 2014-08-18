@@ -296,6 +296,9 @@ ssh_create_socket(int privileged, struct addrinfo *ai)
 	int sock, r, gaierr;
 	struct addrinfo hints, *res = NULL;
 
+	if (options.tcp_rcv_buf > 0)
+		ssh_set_socket_recvbuf(sock);
+
 	sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
 	if (sock < 0) {
 		error("socket: %s", strerror(errno));
@@ -548,7 +551,7 @@ send_client_banner(int connection_out, int minor1)
 	/* Send our own protocol version identification. */
 	if (compat20) {
 		xasprintf(&client_version_string, "SSH-%d.%d-%.100s\r\n",
-		    PROTOCOL_MAJOR_2, PROTOCOL_MINOR_2, SSH_VERSION);
+		    PROTOCOL_MAJOR_2, PROTOCOL_MINOR_2, SSH_RELEASE);
 	} else {
 		xasprintf(&client_version_string, "SSH-%d.%d-%.100s\n",
 		    PROTOCOL_MAJOR_1, minor1, SSH_RELEASE);

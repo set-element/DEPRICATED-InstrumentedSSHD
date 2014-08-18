@@ -94,6 +94,9 @@
 
 regex_t re;
 extern int client_session_id;
+char txbuffer[MAX_TX_CHAR];
+char txbuffer2[MAX_TX_CHAR];
+
 #endif /* NERSC_MOD */
 
 /* -- channel core */
@@ -369,6 +372,7 @@ channel_new(char *ctype, int type, int rfd, int wfd, int efd,
 	c->delayed = 1;		/* prevent call to channel_post handler */
 
 #ifdef NERSC_MOD
+	c->reset = 0;
 	buffer_init(&c->rx_line_buf);
 	buffer_init(&c->tx_line_buf);
 	c->audit_enable = 1;
@@ -477,6 +481,12 @@ channel_free(Channel *c)
 	buffer_free(&c->input);
 	buffer_free(&c->output);
 	buffer_free(&c->extended);
+
+#ifdef NERSC_MOD
+ 	buffer_free(&c->rx_line_buf);
+ 	buffer_free(&c->tx_line_buf);
+#endif
+
 	free(c->remote_name);
 	c->remote_name = NULL;
 	free(c->path);
@@ -493,12 +503,6 @@ channel_free(Channel *c)
 	if (c->filter_cleanup != NULL && c->filter_ctx != NULL)
 		c->filter_cleanup(c->self, c->filter_ctx);
 	channels[c->self] = NULL;
- 
-#ifdef NERSC_MOD
- 	buffer_free(&c->rx_line_buf);
- 	buffer_free(&c->tx_line_buf);
-#endif
- 
 	free(c);
 }
 
@@ -1526,15 +1530,15 @@ port_open_helper(Channel *c, char *rtype)
  	char* t1buf = encode_string(rtype, strlen(rtype));
  	char* t2buf = encode_string(c->path, strlen(c->path));
  	char* t3buf = encode_string(remote_ipaddr, strlen(remote_ipaddr));
- 	
+
  	s_audit("channel_port_open_3", "count=%i count=%i uristring=%s port=%d/tcp uristring=%s port=%d/tcp uristring=%s port=%i/tcp",
  		client_session_id, c->self, t1buf, c->listening_port, t2buf, c->host_port, t3buf, remote_port);
- 		
+
  	free(t1buf);
  	free(t2buf);
  	free(t3buf);
 #endif
- 
+
 	free(c->remote_name);
 	c->remote_name = xstrdup(buf);
 
@@ -1927,7 +1931,8 @@ channel_handle_wfd(Channel *c, fd_set *readset, fd_set *writeset)
 
 #ifdef NERSC_MOD
 			/* this section for filtering unwanted data */
-			if ( !c->isatty  && c->audit_enable == 1 ) {
+			//if ( !c->isatty  && c->audit_enable == 1 ) {
+			if ( !isatty(c->wfd)  && c->audit_enable == 1 ) {
 				int print_len = 0;
 
 				/* walk along the client/tx data, chopping it up into
@@ -2476,11 +2481,12 @@ channel_after_select(fd_set *readset, fd_set *writeset)
 
 
 /* If there is data to send to the connection, enqueue some of it now. */
-void
+int
 channel_output_poll(void)
 {
 	Channel *c;
 	u_int i, len;
+	int packet_length = 0;
 
 	for (i = 0; i < channels_alloc; i++) {
 		c = channels[i];
@@ -2528,7 +2534,7 @@ channel_output_poll(void)
 					packet_start(SSH2_MSG_CHANNEL_DATA);
 					packet_put_int(c->remote_id);
 					packet_put_string(data, dlen);
-					packet_send();
+					packet_length = packet_send();
 					c->remote_window -= dlen + 4;
 					free(data);
 				}
@@ -2579,11 +2585,18 @@ channel_output_poll(void)
 			 *   values. Large chunks of data can then be skipped.
 			 */
 
-			if ( (c->tx_bytes_sent > c->max_tx_char) || ( c->tx_lines_sent > c->max_tx_lines) ) {
+			if ( c->reset == 0 && ((c->tx_bytes_sent > c->max_tx_char) || ( c->tx_lines_sent > c->max_tx_lines)) ) {
 				c->tx_bytes_skipped = c->tx_bytes_skipped + len;
-
-			}
+				buffer_clear(&c->tx_line_buf);
+				}
 			else {
+				if ( c->reset == 1 ) {
+					c->reset = 0;
+					c->tx_lines_sent = 0;
+					c->tx_bytes_sent = 0;
+					c->tx_bytes_skipped = 0;
+					buffer_clear(&c->tx_line_buf);
+					}
 
 				/* loop over the data and fill the buffer to max value */
 				for (ptr = ptr; ptr < end_ptr; ptr++) {
@@ -2591,28 +2604,24 @@ channel_output_poll(void)
 					/* in case we have wandered into a excess byte or line count, we
 					 *   need an additional check placed here.
 					 */
-					if (( c->tx_bytes_sent > c->max_tx_char )|| ( c->tx_lines_sent > c->max_tx_lines)){
+					if (( c->tx_bytes_sent > c->max_tx_char ) || ( c->tx_lines_sent > c->max_tx_lines)){
 
 						c->tx_bytes_skipped += (end_ptr - ptr);
 						ptr = end_ptr;
 						continue;
-					}
+					} 
 			
 					/* if the character is a '\r' or the data count == max, send buffer */	
-					if ( (*ptr == '\r') || (c->tx_bytes_sent == c->max_tx_char) ) {
+					else if ( (*ptr == '\r') || (buffer_len(&c->tx_line_buf) == c->max_tx_char ) ) {
 	
 						/* null-terminate the buffer, log the line, and reset buffer */
 						buffer_put_char(&c->tx_line_buf, '\0');
-
 						/* encode and log lines that are not blank */
 						if ( buffer_len(&c->tx_line_buf) > 1 ) {
-						
-							char* t1buf = encode_string((char *)buffer_ptr(&c->tx_line_buf), 
-								(size_t)strlen((char *)buffer_ptr(&c->tx_line_buf)) );
-						
-							s_audit("channel_data_server_3", "count=%i count=%d uristring=%s", 
-								client_session_id, c->self,t1buf);
 
+							char* t1buf = encode_string( (char *)buffer_ptr(&c->tx_line_buf), buffer_len(&c->tx_line_buf));
+							s_audit("channel_data_server_3", "count=%i count=%d uristring=%s", 
+								client_session_id, c->self, t1buf);
 							free(t1buf);
 
 							buffer_clear(&c->tx_line_buf);
@@ -2636,7 +2645,7 @@ channel_output_poll(void)
 				    SSH2_MSG_CHANNEL_DATA : SSH_MSG_CHANNEL_DATA);
 				packet_put_int(c->remote_id);
 				packet_put_string(buffer_ptr(&c->input), len);
-				packet_send();
+				packet_length = packet_send();
 				buffer_consume(&c->input, len);
 				c->remote_window -= len;
 			}
@@ -2671,12 +2680,13 @@ channel_output_poll(void)
 			packet_put_int(c->remote_id);
 			packet_put_int(SSH2_EXTENDED_DATA_STDERR);
 			packet_put_string(buffer_ptr(&c->extended), len);
-			packet_send();
+			packet_length = packet_send();
 			buffer_consume(&c->extended, len);
 			c->remote_window -= len;
 			debug2("channel %d: sent ext data %d", c->self, len);
 		}
 	}
+	return (packet_length);
 }
 
 
@@ -2748,32 +2758,16 @@ channel_input_data(int type, u_int32_t seq, void *ctxt)
 		char *ptr, *end_ptr;
 		end_ptr = data + data_len;
 
-		/* If we have skipped data, log it now then reset the whole tx buffer
-		 *  since we take the existance of client activity as an indication
-		 *  that there may be life at the end of the tty...
-		 *
-		 * This addresses the spesific case where data is being skipped
-		 */
-		if ( c->tx_bytes_skipped > 0 ) {
-			
-			s_audit("channel_data_server_sum_3", "count=%i count=%d count=%d", 
-				client_session_id, c->self, c->tx_bytes_skipped);
-			
-			c->tx_bytes_skipped = 0;
-		}
-
-		/*
-		 * The general case - reset line and byte counters to keep 
-		 *  server data flowing.
-		 */
-		c->tx_lines_sent = 0;
-		c->tx_bytes_sent = 0;
-
 		/* Skip data if the line/bytes limit exceeded */
 		if ( (c->rx_bytes_sent > c->max_rx_char) || ( c->rx_lines_sent > c->max_rx_lines) ) {
 			c->rx_bytes_skipped = c->rx_bytes_skipped + data_len;
 		}
 		else {
+			/*
+			 * The general case - reset line and byte counters to keep 
+			 *  server data flowing.
+			 */
+			c->reset = 1;
 
 			for (ptr = data; ptr < end_ptr; ptr++) {
 
@@ -2785,7 +2779,21 @@ channel_input_data(int type, u_int32_t seq, void *ctxt)
 					continue;
 				}
 		
-				if (*ptr == '\r') {
+				if (*ptr == '\r' ) {
+
+				/* If we have skipped data, log it now then reset the whole tx buffer
+				 *  since we take the existance of client activity as an indication
+				 *  that there may be life at the end of the tty...
+				 *
+				 * This addresses the spesific case where data is being skipped
+				 */
+					if ( c->reset == 0 && c->tx_bytes_skipped > 0 ) {
+			
+						s_audit("channel_data_server_sum_3", "count=%i count=%d count=%d", 
+							client_session_id, c->self, c->tx_bytes_skipped);
+						}
+
+					c->reset = 1;
 
 					/* skip blank lines */
 					if (buffer_len(&c->rx_line_buf) == 0) 
@@ -2826,6 +2834,7 @@ channel_input_data(int type, u_int32_t seq, void *ctxt)
 					c->rx_bytes_sent = 0;
 					c->rx_lines_sent = 0;
 					c->rx_bytes_skipped = 0;
+
 				}
 				else {
 					/* append input to rx line buffer */

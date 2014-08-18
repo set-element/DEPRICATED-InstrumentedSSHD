@@ -395,18 +395,15 @@ do_authenticated1(Authctxt *authctxt)
 				s->auth_proto = NULL;
 				s->auth_data = NULL;
 			}
-
 #ifdef NERSC_MOD
  			s_audit("session_do_auth_3", "count=%i count=%i", type, success);
 #endif
-
 			break;
 
 		case SSH_CMSG_AGENT_REQUEST_FORWARDING:
 #ifdef NERSC_MOD
  			s_audit("session_do_auth_3", "count=%i count=%i", type, 2);
 #endif
-
 			if (!options.allow_agent_forwarding ||
 			    no_agent_forwarding_flag || compat13) {
 				debug("Authentication agent forwarding not permitted for this authentication.");
@@ -420,7 +417,6 @@ do_authenticated1(Authctxt *authctxt)
 #ifdef NERSC_MOD
  			s_audit("session_do_auth_3", "count=%i count=%i", type, success);
 #endif
-
 			break;
 
 		case SSH_CMSG_PORT_FORWARD_REQUEST:
@@ -445,11 +441,14 @@ do_authenticated1(Authctxt *authctxt)
 			if (channel_input_port_forward_request(s->pw->pw_uid == 0,
 			    options.gateway_ports) < 0) {
 				debug("Port forwarding failed.");
+#ifdef NERSC_MOD
+ 				s_audit("session_do_auth_3", "count=%i count=%i", type, 0);
+#endif
 				break;
 			}
 			success = 1;
 #ifdef NERSC_MOD
- 				s_audit("session_do_auth_3", "count=%i count=%i", type, 0);
+ 			s_audit("session_do_auth_3", "count=%i count=%i", type, 1);
 #endif
 			break;
 
@@ -457,15 +456,13 @@ do_authenticated1(Authctxt *authctxt)
 #ifdef NERSC_MOD
  			s_audit("session_do_auth_3", "count=%i count=%i", type, 2);
 #endif
-
-			if (packet_set_maxsize(packet_get_int()) > 0) {
+			if (packet_set_maxsize(packet_get_int()) > 0)
 				success = 1;
 #ifdef NERSC_MOD
  			int t_success = 0;
  			if ( success == 1 ) t_success = 1;
  			s_audit("session_do_auth_3", "count=%i count=%i", type, t_success);
 #endif
-			}
 			break;
 
 		case SSH_CMSG_EXEC_SHELL:
@@ -474,29 +471,32 @@ do_authenticated1(Authctxt *authctxt)
  			s_audit("session_do_auth_3", "count=%i count=%i", type, 2);
  			int t_success2 = 1;
 #endif
-
 			if (type == SSH_CMSG_EXEC_CMD) {
 				command = packet_get_string(&dlen);
 				debug("Exec command '%.500s'", command);
-				if (do_exec(s, command) != 0) 
+				if (do_exec(s, command) != 0)
+#ifdef NERSC_MOD
+ 					{
+ 					t_success2 = 0;
+ 					packet_disconnect("command execution failed");
+ 					}
+ #else
+					packet_disconnect(
+					    "command execution failed");
+#endif
+
+				free(command);
+			} else {
+				if (do_exec(s, NULL) != 0)
 #ifdef NERSC_MOD
  					{
  					t_success2 = 0;
  					packet_disconnect("command execution failed");
  					}
 #else
-					packet_disconnect("command execution failed"); 
+					packet_disconnect(
+					    "shell execution failed");
 #endif
-				free(command);
-			} else {
-				if (do_exec(s, NULL) != 0)
-					{
-#ifdef NERSC_MOD
- 					t_success2 = 0;
-#endif
-					packet_disconnect("shell execution failed");
-					}
-
 			}
 			packet_check_eom();
 			session_close(s);

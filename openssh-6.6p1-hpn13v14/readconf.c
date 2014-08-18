@@ -146,13 +146,12 @@ typedef enum {
 	oHashKnownHosts,
 	oTunnel, oTunnelDevice, oLocalCommand, oPermitLocalCommand,
 	oVisualHostKey, oUseRoaming,
-	oKexAlgorithms, oIPQoS, oRequestTTY, oHPNBufferSize,
-	oIgnoreUnknown, oProxyUseFdpass,
+	oProxyUseFdpass,
+	oKexAlgorithms, oIPQoS, oRequestTTY, oTcpRcvBufPoll, oTcpRcvBuf,
+	oHPNDisabled, oHPNBufferSize, oNoneSwitch, oNoneEnabled,
+	oIgnoreUnknown, oIgnoredUnknownOption, oDeprecated, oUnsupported,
 	oCanonicalDomains, oCanonicalizeHostname, oCanonicalizeMaxDots,
 	oCanonicalizeFallbackLocal, oCanonicalizePermittedCNAMEs,
-	oNoneEnabled, oTcpRcvBufPoll, oTcpRcvBuf, oNoneSwitch, oHPNDisabled,
-	
-	oIgnoredUnknownOption, oDeprecated, oUnsupported
 } OpCodes;
 
 /* Textual representations of the tokens. */
@@ -258,6 +257,12 @@ static struct {
 	{ "kexalgorithms", oKexAlgorithms },
 	{ "ipqos", oIPQoS },
 	{ "requesttty", oRequestTTY },
+	{ "noneenabled", oNoneEnabled },
+        { "noneswitch", oNoneSwitch },
+ 	{ "tcprcvbufpoll", oTcpRcvBufPoll },
+ 	{ "tcprcvbuf", oTcpRcvBuf },
+ 	{ "hpndisabled", oHPNDisabled },
+ 	{ "hpnbuffersize", oHPNBufferSize },
 	{ "proxyusefdpass", oProxyUseFdpass },
 	{ "canonicaldomains", oCanonicalDomains },
 	{ "canonicalizefallbacklocal", oCanonicalizeFallbackLocal },
@@ -265,13 +270,6 @@ static struct {
 	{ "canonicalizemaxdots", oCanonicalizeMaxDots },
 	{ "canonicalizepermittedcnames", oCanonicalizePermittedCNAMEs },
 	{ "ignoreunknown", oIgnoreUnknown },
-
-	{ "noneenabled", oNoneEnabled },
-	{ "tcprcvbufpoll", oTcpRcvBufPoll },
-	{ "tcprcvbuf", oTcpRcvBuf },
-	{ "noneswitch", oNoneSwitch },
-	{ "hpndisabled", oHPNDisabled },
-	{ "hpnbuffersize", oHPNBufferSize },
 
 	{ NULL, oBadOption }
 };
@@ -863,24 +861,6 @@ parse_time:
 		intptr = &options->check_host_ip;
 		goto parse_flag;
 
-	case oNoneEnabled:
-		intptr = &options->none_enabled;
-		goto parse_flag;
- 
-	/* we check to see if the command comes from the */
-	/* command line or not. If it does then enable it */
-	/* otherwise fail. NONE should never be a default configuration */
-	case oNoneSwitch:
-		if(strcmp(filename,"command-line") == 0) {
-			intptr = &options->none_switch;
-			goto parse_flag;
-		} else {
-			error("NoneSwitch is found in %.200s.\nYou may only use this configuration option from the command line", filename);
-			error("Continuing...");
-			debug("NoneSwitch directive found in %.200s.", filename);
-			return 0;
-		}
-
 	case oHPNDisabled:
 		intptr = &options->hpn_disabled;
 		goto parse_flag;
@@ -892,6 +872,24 @@ parse_time:
 	case oTcpRcvBufPoll:
 		intptr = &options->tcp_rcv_buf_poll;
 		goto parse_flag;
+
+        case oNoneEnabled:
+               	intptr = &options->none_enabled;
+               	goto parse_flag;
+ 
+       	/* we check to see if the command comes from the */
+       	/* command line or not. If it does then enable it */
+       	/* otherwise fail. NONE should never be a default configuration */
+       	case oNoneSwitch:
+               	if(strcmp(filename,"command-line") == 0) {
+                       	intptr = &options->none_switch;
+                       	goto parse_flag;
+               	} else {
+                       	error("NoneSwitch is found in %.200s.\nYou may only use this configuration option from the command line", filename);
+                       	error("Continuing...");
+                       	debug("NoneSwitch directive found in %.200s.", filename);
+                       	return 0;
+               	}
 
 	case oVerifyHostKeyDNS:
 		intptr = &options->verify_host_key_dns;
@@ -1605,6 +1603,12 @@ initialize_options(Options * options)
 	options->ip_qos_interactive = -1;
 	options->ip_qos_bulk = -1;
 	options->request_tty = -1;
+ 	options->none_switch = -1;
+ 	options->none_enabled = -1;
+ 	options->hpn_disabled = -1;
+	options->hpn_buffer_size = -1;
+ 	options->tcp_rcv_buf_poll = -1;
+ 	options->tcp_rcv_buf = -1;
 	options->proxy_use_fdpass = -1;
 	options->ignored_unknown = NULL;
 	options->num_canonical_domains = 0;
@@ -1612,14 +1616,6 @@ initialize_options(Options * options)
 	options->canonicalize_max_dots = -1;
 	options->canonicalize_fallback_local = -1;
 	options->canonicalize_hostname = -1;
-	 
- 	options->none_switch = -1;
- 	options->none_enabled = -1;
- 	options->hpn_disabled = -1;
- 	options->hpn_buffer_size = -1;
- 	options->tcp_rcv_buf_poll = -1;
- 	options->tcp_rcv_buf = -1;
-
 }
 
 /*
@@ -1760,7 +1756,9 @@ fill_default_options(Options * options)
 	if (options->server_alive_count_max == -1)
 		options->server_alive_count_max = 3;
 	if (options->none_switch == -1)
-	        options->none_switch = 0;
+		options->none_switch = 0;
+	if (options->none_enabled == -1)
+		options->none_enabled = 0;
 	if (options->hpn_disabled == -1)
 	        options->hpn_disabled = 0;
 	if (options->hpn_buffer_size > -1)

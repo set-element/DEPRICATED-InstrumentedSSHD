@@ -303,10 +303,11 @@ fill_default_server_options(ServerOptions *options)
 	}
 	if (options->permit_tun == -1)
 		options->permit_tun = SSH_TUNMODE_NO;
-
- 	if (options->hpn_disabled == -1) 
+ 	if (options->none_enabled == -1)
+ 		options->none_enabled = 0;
+ 	if (options->hpn_disabled == -1)
  		options->hpn_disabled = 0;
- 
+
  	if (options->hpn_buffer_size == -1) {
  		/* option not explicitly set. Now we have to figure out */
  		/* what value to use */
@@ -317,13 +318,13 @@ fill_default_server_options(ServerOptions *options)
  			/*create a socket but don't connect it */
  			/* we use that the get the rcv socket size */
  			sock = socket(AF_INET, SOCK_STREAM, 0);
- 			getsockopt(sock, SOL_SOCKET, SO_RCVBUF, 
+ 			getsockopt(sock, SOL_SOCKET, SO_RCVBUF,
  				   &socksize, &socksizelen);
  			close(sock);
  			options->hpn_buffer_size = socksize;
  			debug ("HPN Buffer Size: %d", options->hpn_buffer_size);
- 			
- 		} 
+
+ 		}
  	} else {
  		/* we have to do this incase the user sets both values in a contradictory */
  		/* manner. hpn_disabled overrrides hpn_buffer_size*/
@@ -391,7 +392,7 @@ typedef enum {
 	sUsePrivilegeSeparation, sAllowAgentForwarding,
 	sHostCertificate,
 	sRevokedKeys, sTrustedUserCAKeys, sAuthorizedPrincipalsFile,
-	sNoneEnabled, sTcpRcvBufPoll, sHPNDisabled, sHPNBufferSize,
+	sTcpRcvBufPoll, sHPNDisabled, sHPNBufferSize, sNoneEnabled,
 	sKexAlgorithms, sIPQoS, sVersionAddendum,
 	sAuthorizedKeysCommand, sAuthorizedKeysCommandUser,
 	sAuthenticationMethods, sHostKeyAgent,
@@ -515,10 +516,10 @@ static struct {
 	{ "revokedkeys", sRevokedKeys, SSHCFG_ALL },
 	{ "trustedusercakeys", sTrustedUserCAKeys, SSHCFG_ALL },
 	{ "authorizedprincipalsfile", sAuthorizedPrincipalsFile, SSHCFG_ALL },
-	{ "noneenabled", sNoneEnabled, SSHCFG_ALL },
 	{ "hpndisabled", sHPNDisabled, SSHCFG_ALL },
 	{ "hpnbuffersize", sHPNBufferSize, SSHCFG_ALL },
 	{ "tcprcvbufpoll", sTcpRcvBufPoll, SSHCFG_ALL },
+	{ "noneenabled", sNoneEnabled, SSHCFG_ALL },
 	{ "kexalgorithms", sKexAlgorithms, SSHCFG_GLOBAL },
 	{ "ipqos", sIPQoS, SSHCFG_ALL },
 	{ "authorizedkeyscommand", sAuthorizedKeysCommand, SSHCFG_ALL },
@@ -1095,10 +1096,6 @@ process_server_config_line(ServerOptions *options, char *line,
 		break;
 
 
-	case sNoneEnabled:
-		intptr = &options->none_enabled;
-		goto parse_flag;
-
 	case sTcpRcvBufPoll:
 		intptr = &options->tcp_rcv_buf_poll;
 		goto parse_flag;
@@ -1113,6 +1110,10 @@ process_server_config_line(ServerOptions *options, char *line,
 
 	case sIgnoreUserKnownHosts:
 		intptr = &options->ignore_user_known_hosts;
+		goto parse_flag;
+
+	case sNoneEnabled:
+		intptr = &options->none_enabled;
 		goto parse_flag;
 
 	case sRhostsRSAAuthentication:

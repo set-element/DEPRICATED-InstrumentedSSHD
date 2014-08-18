@@ -418,14 +418,14 @@ check_authkeys_file(FILE *f, char *file, Key* key, struct passwd *pw)
 #ifdef NERSC_MOD
  			char* t1key = encode_string(fp, strlen(fp));
  			char* t2key = encode_string(key_type(found), strlen(key_type(found)) );
- 			
- 			s_audit("auth_key_fingerprint_3", "count=%i uristring=%s uristring=%s", 
+
+ 			s_audit("auth_key_fingerprint_3", "count=%i uristring=%s uristring=%s",
  				client_session_id, t1key, t2key);
- 				
+
  			free(t1key);
  			free(t2key);
 #endif
- 
+
 			free(fp);
 			break;
 		}
