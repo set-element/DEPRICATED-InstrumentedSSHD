@@ -528,29 +528,23 @@ void s_audit(const char *_event, const char *fmt, ...)
 	/* get interface list */
 	set_interface_list();
 	char* t3buf = encode_string( interface_list, strlen(interface_list) );
-//debug2("SSH_AUDITING: %s",SSH_AUDITING);
-//debug2("XSSH_AUDITING: %s",t2buf);
-//debug2("INT LIST: %s", interface_list);
-//debug2("XINT LIST: %s", t3buf);
 	/* fmt defines how data provided by args should be formatted */	
 	va_start(args, fmt);
 	/* copy the data into msgbuf */
 	vsnprintf(msgbuf, sizeof(msgbuf), fmt, args);
 	va_end(args);
-//debug2("MSGLIST: %s", msgbuf);
 
 	/* copy event and system data in front of the argument data */
 	snprintf(fmtbuf, sizeof(fmtbuf), "%s time=%ld.%ld uristring=%s uristring=%s %s\n", _event, tv.tv_sec, (long int)tv.tv_usec, t2buf, t1buf, msgbuf);
-//debug2("FMTBUF: %s", fmtbuf);
-	//write(STDERR_FILENO, fmtbuf, strlen(fmtbuf));
-	syslog(LOG_NOTICE, fmtbuf); 
+	/* write(STDERR_FILENO, fmtbuf, strlen(fmtbuf)); */
+	/* syslog(LOG_NOTICE, fmtbuf); */
 
 	/* 
 	 * If the socket open fails, sis_write() will return a -1.  for the time
 	 *   being we will just let this ride since we will be reporting
 	 *   write failures anyway.
 	 */
-	//sis_write(fmtbuf);
+	sis_write(fmtbuf);
 
 	free(t1buf);
 	free(t2buf);
