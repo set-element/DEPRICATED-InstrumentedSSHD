@@ -268,10 +268,12 @@ compat_pkalg_proposal(char *pkalg_prop)
 	if (!(datafellows & SSH_BUG_RSASIGMD5))
 		return pkalg_prop;
 	debug2("%s: original public key proposal: %s", __func__, pkalg_prop);
+#ifndef NERSC_MOD
 	pkalg_prop = filter_proposal(pkalg_prop, "ssh-rsa");
 	debug2("%s: compat public key proposal: %s", __func__, pkalg_prop);
 	if (*pkalg_prop == '\0')
 		fatal("No supported PK algorithms found");
+#endif
 	return pkalg_prop;
 }
 

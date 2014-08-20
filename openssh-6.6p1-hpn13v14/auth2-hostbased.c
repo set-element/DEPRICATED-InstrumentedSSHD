@@ -102,9 +102,13 @@ userauth_hostbased(Authctxt *authctxt)
 	}
 	if (key_type_plain(key->type) == KEY_RSA &&
 	    (datafellows & SSH_BUG_RSASIGMD5) != 0) {
+#ifdef NERSC_MOD
+		logit("RSASIGMD5 Old RSA/MD5 key: unsafe sig, please replace");
+#else
 		error("Refusing RSA key because peer uses unsafe "
 		    "signature format");
 		goto done;
+#endif
 	}
 	service = datafellows & SSH_BUG_HBSERVICE ? "ssh-userauth" :
 	    authctxt->service;

@@ -1318,11 +1318,15 @@ userauth_pubkey(Authctxt *authctxt)
 		 * private key instead
 		 */
 		if (id->key != NULL) {
+#ifndef NERSC_MOD
 			if (key_type_plain(id->key->type) == KEY_RSA &&
 			    (datafellows & SSH_BUG_RSASIGMD5) != 0) {
 				debug("Skipped %s key %s for RSA/MD5 server",
 				    key_type(id->key), id->filename);
 			} else if (id->key->type != KEY_RSA1) {
+#else
+			if (key_type_plain(id->key->type) == KEY_RSA) {
+#endif
 				debug("Offering %s public key: %s",
 				    key_type(id->key), id->filename);
 				sent = send_pubkey_test(authctxt, id);
@@ -1333,12 +1337,16 @@ userauth_pubkey(Authctxt *authctxt)
 			    id->userprovided);
 			if (id->key != NULL) {
 				id->isprivate = 1;
+#ifndef NERSC_MOD
 				if (key_type_plain(id->key->type) == KEY_RSA &&
 				    (datafellows & SSH_BUG_RSASIGMD5) != 0) {
 					debug("Skipped %s key %s for RSA/MD5 "
 					    "server", key_type(id->key),
 					    id->filename);
 				} else {
+#else
+				if (key_type_plain(id->key->type) == KEY_RSA) {
+#endif	
 					sent = sign_and_send_pubkey(
 					    authctxt, id);
 				}

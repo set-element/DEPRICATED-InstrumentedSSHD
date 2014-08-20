@@ -699,9 +699,11 @@ ssh_exchange_identification(int timeout_ms)
 	if ((datafellows & SSH_BUG_DERIVEKEY) != 0)
 		fatal("Server version \"%.100s\" uses unsafe key agreement; "
 		    "refusing connection", remote_version);
+#ifndef NERSC_MOD
 	if ((datafellows & SSH_BUG_RSASIGMD5) != 0)
 		logit("Server version \"%.100s\" uses unsafe RSA signature "
 		    "scheme; disabling use of RSA keys", remote_version);
+#endif
 	if (!client_banner_sent)
 		send_client_banner(connection_out, minor1);
 	chop(server_version_string);

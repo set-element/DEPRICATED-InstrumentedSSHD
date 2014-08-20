@@ -123,9 +123,13 @@ userauth_pubkey(Authctxt *authctxt)
 	}
 	if (key_type_plain(key->type) == KEY_RSA &&
 	    (datafellows & SSH_BUG_RSASIGMD5) != 0) {
+#ifdef NERSC_MOD
+		logit("RSASIGMD5 Old RSA/MD5 key: unsafe sig, please replace");
+#else
 		logit("Refusing RSA key because client uses unsafe "
 		    "signature scheme");
 		goto done;
+#endif
 	}
 	if (have_sig) {
 		sig = packet_get_string(&slen);
