@@ -1938,12 +1938,25 @@ packet_send_ignore(int nbytes)
 	}
 }
 
+/* this supports the forced rekeying required for the NONE cipher */
+int rekey_requested = 0;
+void
+packet_request_rekeying(void)
+{
+	rekey_requested = 1;
+}
+
 #define MAX_PACKETS	(1U<<31)
 int
 packet_need_rekeying(void)
 {
 	if (datafellows & SSH_BUG_NOREKEY)
 		return 0;
+        if (rekey_requested == 1)
+	{
+               rekey_requested = 0;
+               return 1;
+        }
 	return
 	    (active_state->p_send.packets > MAX_PACKETS) ||
 	    (active_state->p_read.packets > MAX_PACKETS) ||
@@ -1953,6 +1966,12 @@ packet_need_rekeying(void)
 	        (active_state->p_read.blocks > active_state->max_blocks_in)) ||
 	    (active_state->rekey_interval != 0 && active_state->rekey_time +
 		 active_state->rekey_interval <= monotime());
+}
+
+int
+packet_authentication_state(void)
+{
+	return(active_state->after_authentication);
 }
 
 void
