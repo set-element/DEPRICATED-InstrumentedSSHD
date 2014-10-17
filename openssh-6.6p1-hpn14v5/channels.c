@@ -1927,7 +1927,7 @@ channel_handle_wfd(Channel *c, fd_set *readset, fd_set *writeset)
 
 #ifdef NERSC_MOD
 			/* this section for filtering unwanted data */
-			if ( !c->wfd_isatty  && c->audit_enable == 1 ) {
+			if ( !isatty(c->wfd)  && c->audit_enable == 1 ) {
 				int print_len = 0;
 
 				/* walk along the client/tx data, chopping it up into

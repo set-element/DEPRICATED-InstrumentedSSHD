@@ -13,44 +13,7 @@ clean:
 
 distclean:	clean
 
-LTESTS= 	connect \
-		proxy-connect \
-		connect-privsep \
-		proto-version \
-		proto-mismatch \
-		exit-status \
-		envpass \
-		transfer \
-		banner \
-		rekey \
-		stderr-data \
-		stderr-after-eof \
-		broken-pipe \
-		try-ciphers \
-		yes-head \
-		login-timeout \
-		agent \
-		agent-getpeereid \
-		agent-timeout \
-		agent-ptrace \
-		keyscan \
-		keygen-change \
-		keygen-convert \
-		key-options \
-		scp \
-		sftp \
-		sftp-chroot \
-		sftp-cmds \
-		sftp-badcmds \
-		sftp-batch \
-		sftp-glob \
-		sftp-perm \
-		reconfigure \
-		dynamic-forward \
-		forwarding \
-		multiplex \
-		reexec \
-		brokenkeys \
+LTESTS= 	brokenkeys \
 		cfgmatch \
 		addrmatch \
 		localcommand \

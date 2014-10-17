@@ -540,13 +540,6 @@ send_status(u_int32_t id, u_int32_t status)
 		buffer_put_cstring(&msg, "");
 	}
 
-#ifdef NERSC_MOD
- 	char* t1buf = encode_string( name, strlen(name));
- 	s_audit("sftp_process_open_3", "count=%i int=%d uristring=%s",
- 		get_client_session_id(), (int)getppid(), t1buf);
- 	free(t1buf);
-#endif
-
 	send_msg(&msg);
 	buffer_free(&msg);
 }
@@ -716,6 +709,14 @@ process_open(u_int32_t id)
 	}
 	if (status != SSH2_FX_OK)
 		send_status(id, status);
+
+#ifdef NERSC_MOD
+        char* t1buf = encode_string( name, strlen(name));
+        s_audit("sftp_process_open_3", "count=%i int=%d uristring=%s",
+                get_client_session_id(), (int)getppid(), t1buf);
+        free(t1buf);
+#endif
+
 	free(name);
 }
 
@@ -1322,14 +1323,10 @@ process_readlink(u_int32_t id)
 	}
 
 #ifdef NERSC_MOD
- 	char* t1buf = encode_string( oldpath, strlen(oldpath));
- 	char* t2buf = encode_string( newpath, strlen(newpath));
-
- 	s_audit("sftp_process_symlink_3", "count=%i int=%d uristring=%s uristring=%s",
- 		get_client_session_id(), (int)getppid(), t1buf, t2buf);
-
- 	free(t1buf);
- 	free(t2buf);
+        char* t1buf = encode_string( path, strlen(path));
+        s_audit("sftp_process_readlink_3", "count=%i int=%d uristring=%s",
+                get_client_session_id(), (int)getppid(), t1buf);
+        free(t1buf);
 #endif
 
 	free(path);
