@@ -51,6 +51,11 @@
 #include "roaming.h"
 #include "digest.h"
 
+#ifdef NERSC_MOD
+#include "nersc.h"
+extern int client_session_id;
+#endif
+
 #if OPENSSL_VERSION_NUMBER >= 0x00907000L
 # if defined(HAVE_EVP_SHA256)
 # define evp_ssh_sha256 EVP_sha256
@@ -515,6 +520,24 @@ kex_choose_conf(Kex *kex)
 		    newkeys->enc.name,
 		    authlen == 0 ? newkeys->mac.name : "<implicit>",
 		    newkeys->comp.name);
+
+#ifdef NERSC_MOD
+		if ( ctos ) {
+			char* t1buf = encode_string(newkeys->enc.name, strlen(newkeys->enc.name));
+			char* t2buf = encode_string(newkeys->mac.name, strlen(newkeys->mac.name));
+			char* t3buf = encode_string(newkeys->comp.name, strlen(newkeys->comp.name));
+			char* t4buf = encode_string(kex->client_version_string, strlen(kex->client_version_string));
+
+			s_audit("session_key_exchange", "count=%i uristring=%s_%s_%s_%s", 
+				client_session_id, t4buf, t1buf, t2buf, t3buf);
+
+			free(t1buf);
+			free(t2buf);
+			free(t3buf);
+			free(t4buf);
+		}
+#endif
+
 	}
 	choose_kex(kex, cprop[PROPOSAL_KEX_ALGS], sprop[PROPOSAL_KEX_ALGS]);
 	choose_hostkeyalg(kex, cprop[PROPOSAL_SERVER_HOST_KEY_ALGS],
