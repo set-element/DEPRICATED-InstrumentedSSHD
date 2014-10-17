@@ -1,0 +1,11 @@
+debug2: Remote version: 3
+debug2: Server supports extension "posix-rename@openssh.com" revision 1
+debug2: Server supports extension "statvfs@openssh.com" revision 2
+debug2: Server supports extension "fstatvfs@openssh.com" revision 2
+debug2: Server supports extension "hardlink@openssh.com" revision 1
+debug2: Server supports extension "fsync@openssh.com" revision 1
+debug3: Sent message fd 3 T:16 I:1
+debug3: SSH_FXP_REALPATH . -> /home/scottc/development/openssh-6.6p1/regress size 0
+sftp> df /
+debug3: Received statvfs reply T:101 I:2
+debug1: Couldn't statvfs: Permission denied

@@ -1,0 +1,7 @@
+trace: generate keys
+FATAL: sshd_proxy broken
+
+trace: generate keys
+FATAL: sshd_proxy broken
+FAIL: sshd_proxy broken
+
