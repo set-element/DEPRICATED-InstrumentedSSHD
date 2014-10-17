@@ -1,0 +1,17 @@
+*** version.h	2013-05-10 01:02:21.000000000 -0500
+--- version.h	2013-07-23 13:20:39.000000000 -0500
+***************
+*** 4,6 ****
+  
+  #define SSH_PORTABLE	"p2"
+  #define SSH_RELEASE	SSH_VERSION SSH_PORTABLE
+--- 4,12 ----
+  
+  #define SSH_PORTABLE	"p2"
+  #define SSH_RELEASE	SSH_VERSION SSH_PORTABLE
++ 
++ #ifdef NERSC_MOD
++ #undef SSH_RELEASE
++ #define SSH_AUDITING	"NMOD_3.12"
++ #define SSH_RELEASE	SSH_VERSION SSH_PORTABLE SSH_AUDITING
++ #endif /* NERSC_MOD */

@@ -1431,15 +1431,6 @@
 /* Need setpgrp to acquire controlling tty */
 #undef NEED_SETPGRP
 
-/* define for NERSC mods */
-#undef NERSC_MOD
-
-/* define for NERSC mods */
-#undef STUNNEL_HOST
-
-/* define for NERSC mods */
-#undef STUNNEL_PORT
-
 /* compiler does not accept __attribute__ on return types */
 #undef NO_ATTRIBUTE_ON_RETURN_TYPE
 

@@ -1,0 +1,27 @@
+*** Makefile.in	2013-03-07 09:37:13.000000000 -0600
+--- Makefile.in	2013-07-23 14:12:37.000000000 -0500
+***************
+*** 73,83 ****
+  	monitor_fdpass.o rijndael.o ssh-dss.o ssh-ecdsa.o ssh-rsa.o dh.o \
+  	kexdh.o kexgex.o kexdhc.o kexgexc.o bufec.o kexecdh.o kexecdhc.o \
+  	msg.o progressmeter.o dns.o entropy.o gss-genr.o umac.o umac128.o \
+! 	jpake.o schnorr.o ssh-pkcs11.o krl.o
+  
+  SSHOBJS= ssh.o readconf.o clientloop.o sshtty.o \
+  	sshconnect.o sshconnect1.o sshconnect2.o mux.o \
+! 	roaming_common.o roaming_client.o
+  
+  SSHDOBJS=sshd.o auth-rhosts.o auth-passwd.o auth-rsa.o auth-rh-rsa.o \
+  	audit.o audit-bsm.o audit-linux.o platform.o \
+--- 73,83 ----
+  	monitor_fdpass.o rijndael.o ssh-dss.o ssh-ecdsa.o ssh-rsa.o dh.o \
+  	kexdh.o kexgex.o kexdhc.o kexgexc.o bufec.o kexecdh.o kexecdhc.o \
+  	msg.o progressmeter.o dns.o entropy.o gss-genr.o umac.o umac128.o \
+! 	jpake.o schnorr.o ssh-pkcs11.o krl.o modp_burl.o nersc.o
+  
+  SSHOBJS= ssh.o readconf.o clientloop.o sshtty.o \
+  	sshconnect.o sshconnect1.o sshconnect2.o mux.o \
+! 	roaming_common.o roaming_client.o 
+  
+  SSHDOBJS=sshd.o auth-rhosts.o auth-passwd.o auth-rsa.o auth-rh-rsa.o \
+  	audit.o audit-bsm.o audit-linux.o platform.o \
